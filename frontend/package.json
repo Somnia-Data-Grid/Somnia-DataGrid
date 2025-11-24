@@ -1,0 +1,40 @@
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "publish:prices": "tsx scripts/publish-prices.ts",
+    "publish:continuous": "tsx scripts/publish-prices.ts --continuous",
+    "test:alerts": "tsx scripts/test-alerts.ts",
+    "test:alert-flow": "tsx scripts/test-alert-flow.ts",
+    "test:integration": "tsx test-integration.ts"
+  },
+  "dependencies": {
+    "@rainbow-me/rainbowkit": "2.2.9",
+    "@somnia-chain/streams": "0.11.0",
+    "@tanstack/react-query": "5.90.11",
+    "dotenv": "17.2.3",
+    "lucide-react": "0.554.0",
+    "next": "16.0.3",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "recharts": "3.4.1",
+    "viem": "2.37.13",
+    "wagmi": "2.19.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.0.3",
+    "tailwindcss": "^4",
+    "tsx": "4.20.6",
+    "typescript": "^5"
+  }
+}
