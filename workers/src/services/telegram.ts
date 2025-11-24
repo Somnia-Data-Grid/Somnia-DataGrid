@@ -1,0 +1,147 @@
+/**
+ * Telegram Notification Service
+ * 
+ * Sends alert notifications to users who have linked their Telegram.
+ */
+
+import { getTelegramLink, logNotification } from "../db/client.js";
+
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_API = "https://api.telegram.org/bot";
+
+interface AlertNotificationParams {
+  alertId: string;
+  walletAddress: string;
+  asset: string;
+  condition: "ABOVE" | "BELOW";
+  thresholdPrice: string;
+  currentPrice: string;
+  decimals: number;
+}
+
+function formatPrice(priceStr: string, decimals: number): string {
+  const price = BigInt(priceStr);
+  const divisor = BigInt(10 ** decimals);
+  const whole = price / divisor;
+  const fraction = (price % divisor).toString().padStart(decimals, "0").slice(0, 2);
+  return `${whole}.${fraction}`;
+}
+
+/**
+ * Send a Telegram message to a chat
+ */
+async function sendTelegramMessage(
+  chatId: string,
+  text: string,
+  parseMode: "HTML" | "Markdown" = "HTML"
+): Promise<boolean> {
+  if (!TELEGRAM_BOT_TOKEN) {
+    console.warn("[Telegram] Bot token not configured, skipping notification");
+    return false;
+  }
+
+  try {
+    const response = await fetch(`${TELEGRAM_API}${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: parseMode,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      console.error("[Telegram] Failed to send message:", error);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error("[Telegram] Error sending message:", error);
+    return false;
+  }
+}
+
+/**
+ * Send an alert notification to a user's linked Telegram
+ */
+export async function sendAlertNotification(params: AlertNotificationParams): Promise<boolean> {
+  const { alertId, walletAddress, asset, condition, thresholdPrice, currentPrice, decimals } = params;
+
+  // Find the user's Telegram link
+  const link = getTelegramLink(walletAddress);
+  if (!link || !link.verified) {
+    console.log(`[Telegram] No verified Telegram link for ${walletAddress.slice(0, 10)}...`);
+    logNotification(alertId, walletAddress, null, "alert", "failed", "No verified Telegram link");
+    return false;
+  }
+
+  const thresholdFormatted = formatPrice(thresholdPrice, decimals);
+  const currentFormatted = formatPrice(currentPrice, decimals);
+  const conditionText = condition === "ABOVE" ? "above" : "below";
+
+  const message = `
+🔔 <b>Price Alert Triggered!</b>
+
+<b>Asset:</b> ${asset}
+<b>Condition:</b> Price went ${conditionText} $${thresholdFormatted}
+<b>Current Price:</b> $${currentFormatted}
+<b>Time:</b> ${new Date().toUTCString()}
+
+<i>Wallet: ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}</i>
+`.trim();
+
+  const success = await sendTelegramMessage(link.telegram_chat_id, message);
+  
+  logNotification(
+    alertId,
+    walletAddress,
+    link.telegram_chat_id,
+    "alert",
+    success ? "success" : "failed",
+    success ? undefined : "Failed to send message"
+  );
+
+  if (success) {
+    console.log(`[Telegram] ✅ Alert notification sent for ${asset} to ${link.telegram_username || link.telegram_chat_id}`);
+  }
+
+  return success;
+}
+
+/**
+ * Send a welcome message when user links their Telegram
+ */
+export async function sendWelcomeMessage(chatId: string, walletAddress: string): Promise<boolean> {
+  const message = `
+🎉 <b>Welcome to Somnia DeFi Tracker!</b>
+
+Your Telegram is now linked to wallet:
+<code>${walletAddress}</code>
+
+You'll receive notifications here when your price alerts are triggered.
+
+<b>Commands:</b>
+/alerts - View your active alerts
+/unlink - Unlink this Telegram from your wallet
+/help - Show help message
+`.trim();
+
+  return sendTelegramMessage(chatId, message);
+}
+
+/**
+ * Send a test notification
+ */
+export async function sendTestNotification(chatId: string): Promise<boolean> {
+  const message = `
+🧪 <b>Test Notification</b>
+
+This is a test notification from Somnia DeFi Tracker.
+If you see this, your Telegram notifications are working!
+`.trim();
+
+  return sendTelegramMessage(chatId, message);
+}
