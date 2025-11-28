@@ -4,6 +4,8 @@
 
 Somnia DataGrid is a shared data layer for the Somnia ecosystem built on top of **Somnia Data Streams**. We run off-chain workers that aggregate price feeds (CoinGecko, DIA on Somnia), sentiment data, and news - then publish them on-chain as typed, documented data streams. Other Somnia dapps can subscribe to these streams via WebSocket using the standard `@somnia-chain/streams` SDK and instantly get real-time data without touching external APIs.
 
+**Somnia AlertGrid** is our reference dapp that demonstrates how to consume DataGrid streams - featuring real-time price dashboards, on-chain alerts, sentiment tracking, and Telegram notifications.
+
 ---
 
 ## 🌊 Somnia Data Streams Integration
@@ -18,7 +20,7 @@ This project demonstrates the power of **Somnia Data Streams** - a real-time, on
 | **Alert Triggers** | `AlertTriggeredV2` | Price alert notifications broadcast on-chain |
 | **Fear & Greed** | `FearGreedV1` | Market sentiment index (0-100) |
 | **Token Sentiment** | `TokenSentimentV1` | Crowd bullish/bearish percentages |
-| **News Events** | `NewsEventV1` | Crypto news with sentiment analysis |
+| **News Events** | `NewsEventV1` | Crypto news with sentiment analysis (coming soon) |
 
 ### Why Somnia Data Streams?
 
@@ -86,7 +88,7 @@ await sdk.streams.subscribe({
 │  📊 Sentiment Streams                                           │
 │  • Fear & Greed Index (FearGreedV1)                             │
 │  • Token Crowd Sentiment (TokenSentimentV1)                     │
-│  • News Events (NewsEventV1)                                    │
+│  • News Events (NewsEventV1) - coming soon                      │
 │                                                                  │
 │  🔔 Alert System                                                │
 │  • Price alerts stored in SQLite (Drizzle ORM)                  │
@@ -162,7 +164,7 @@ npm run dev
 |--------|----------|--------|------------------|
 | **Fear & Greed** | `FearGreedV1` | `uint64 timestamp, uint8 score, string zone, string source, uint64 nextUpdate` | Daily |
 | **Token Sentiment** | `TokenSentimentV1` | `uint64 timestamp, string symbol, uint16 upPercent, uint16 downPercent, int16 netScore, uint32 sampleSize, string source` | 2 hours |
-| **News Events** | `NewsEventV1` | `bytes32 newsId, uint64 timestamp, string symbol, string title, string url, string source, string sentiment, string impact, uint16 votesPos, uint16 votesNeg, uint16 votesImp` | Real-time |
+| **News Events** | `NewsEventV1` | `bytes32 newsId, uint64 timestamp, string symbol, string title, string url, string source, string sentiment, string impact, uint16 votesPos, uint16 votesNeg, uint16 votesImp` | Real-time (coming soon) |
 
 ### Alert Events (`AlertTriggeredV2`)
 
@@ -184,7 +186,7 @@ When a price alert triggers, the event is broadcast on-chain so any subscribed c
 - Fear & Greed Index gauge
 - Token sentiment cards (bullish/bearish %)
 - Track custom tokens for sentiment monitoring
-- Live news feed with sentiment analysis
+- Live news feed with sentiment analysis (coming soon)
 
 ### Telegram Integration
 - Link wallet to Telegram via deep link
@@ -261,9 +263,9 @@ somnia-datagrid/
 - [x] Telegram notifications
 - [x] Fear & Greed Index stream
 - [x] Token Crowd Sentiment stream
-- [x] News Events stream
 - [x] Drizzle ORM migration
 - [x] Toast notifications for triggered alerts
+- [ ] News Events stream (in progress)
 - [ ] More price sources
 - [ ] Historical price charts
 
