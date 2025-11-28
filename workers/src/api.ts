@@ -67,6 +67,20 @@ function sendJson(res: ServerResponse, status: number, data: any) {
   res.end(JSON.stringify(data));
 }
 
+// Transform camelCase to snake_case for API responses (backward compatibility)
+function toSnakeCase(obj: any): any {
+  if (obj === null || obj === undefined) return obj;
+  if (Array.isArray(obj)) return obj.map(toSnakeCase);
+  if (typeof obj !== 'object') return obj;
+  
+  const result: any = {};
+  for (const [key, value] of Object.entries(obj)) {
+    const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
+    result[snakeKey] = toSnakeCase(value);
+  }
+  return result;
+}
+
 function verifyAuth(req: IncomingMessage): boolean {
   if (!API_SECRET) return true; // No auth if secret not set
   
@@ -306,7 +320,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       });
 
       console.log(`[API] Created alert ${alertId.slice(0, 10)}... for ${walletAddress.slice(0, 10)}...`);
-      return sendJson(res, 200, { success: true, alert });
+      return sendJson(res, 200, { success: true, alert: toSnakeCase(alert), alertId });
     }
 
     // Get alerts by wallet
@@ -318,13 +332,13 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       }
 
       const alerts = getAlertsByWallet(walletAddress);
-      return sendJson(res, 200, { success: true, alerts });
+      return sendJson(res, 200, { success: true, alerts: alerts.map(toSnakeCase) });
     }
 
     // Get all active alerts (for internal use)
     if (path === "/api/alerts/active" && method === "GET") {
       const alerts = getActiveAlerts();
-      return sendJson(res, 200, { success: true, alerts, count: alerts.length });
+      return sendJson(res, 200, { success: true, alerts: alerts.map(toSnakeCase), count: alerts.length });
     }
 
     // Delete alert
@@ -359,7 +373,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     // Get tracked tokens
     if (path === "/api/tokens/tracked" && method === "GET") {
       const tokens = getTrackedTokens();
-      return sendJson(res, 200, { success: true, tokens });
+      return sendJson(res, 200, { success: true, tokens: tokens.map(toSnakeCase) });
     }
 
     // Add tracked token
@@ -373,7 +387,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
 
       const token = addTrackedToken(coinId, symbol, name, walletAddress || "user");
       console.log(`[API] Added tracked token: ${symbol} (${coinId})`);
-      return sendJson(res, 200, { success: true, token });
+      return sendJson(res, 200, { success: true, token: toSnakeCase(token) });
     }
 
     // Remove tracked token
@@ -422,7 +436,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       });
 
       console.log(`[API] Created sentiment alert ${alertId.slice(0, 10)}... for ${symbol}`);
-      return sendJson(res, 200, { success: true, alert });
+      return sendJson(res, 200, { success: true, alert: toSnakeCase(alert) });
     }
 
     // Get sentiment alerts by wallet
@@ -434,13 +448,13 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       }
 
       const alerts = getSentimentAlertsByWallet(walletAddress);
-      return sendJson(res, 200, { success: true, alerts });
+      return sendJson(res, 200, { success: true, alerts: alerts.map(toSnakeCase) });
     }
 
     // Get all active sentiment alerts
     if (path === "/api/sentiment-alerts/active" && method === "GET") {
       const alerts = getActiveSentimentAlerts();
-      return sendJson(res, 200, { success: true, alerts, count: alerts.length });
+      return sendJson(res, 200, { success: true, alerts: alerts.map(toSnakeCase), count: alerts.length });
     }
 
     // Delete sentiment alert
