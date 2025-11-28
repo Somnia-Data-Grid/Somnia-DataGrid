@@ -16,6 +16,7 @@ import "dotenv/config";
 import { getDb, closeDb } from "./db/client.js";
 import { startApi } from "./api.js";
 import { initTxManager } from "./services/tx-manager.js";
+import { initStreamRegistry } from "./services/stream-registry.js";
 
 // Re-export for use by other modules
 export * from "./db/client.js";
@@ -30,6 +31,10 @@ async function main() {
   // Initialize database
   console.log("[Main] Initializing database...");
   getDb();
+  
+  // Initialize stream registry (seeds default tokens)
+  console.log("[Main] Initializing stream registry...");
+  initStreamRegistry();
   
   // Initialize shared transaction manager (prevents nonce conflicts)
   console.log("[Main] Initializing transaction manager...");

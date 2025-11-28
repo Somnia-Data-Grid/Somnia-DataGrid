@@ -10,8 +10,8 @@
 
 const COINGECKO_API_BASE = "https://api.coingecko.com/api/v3";
 
-// CoinGecko coin IDs mapping
-// Note: STT is testnet token - use DIA Oracle for that
+// Default CoinGecko coin IDs (fallback if stream registry not initialized)
+// The stream registry provides dynamic token support
 export const COINGECKO_IDS: Record<string, string> = {
   BTC: "bitcoin",
   ETH: "ethereum",
@@ -25,7 +25,10 @@ export const COINGECKO_IDS: Record<string, string> = {
   LINK: "chainlink",
   UNI: "uniswap",
   AAVE: "aave",
-  SOMNIA: "somnia",  // Mainnet token on CoinGecko
+  SOMNIA: "somnia",
+  DOGE: "dogecoin",
+  PEPE: "pepe",
+  SHIB: "shiba-inu",
   // STT is testnet only - available via DIA Oracle
 };
 

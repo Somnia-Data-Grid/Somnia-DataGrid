@@ -33,14 +33,12 @@ export interface AlertNotification {
 }
 
 const FALLBACK_WS = "wss://dream-rpc.somnia.network/ws";
-const MAX_SEEN_ALERTS = 500; // Bounded cache to prevent memory leak
+const MAX_SEEN_ALERTS = 500;
 
-// Track seen alert IDs to avoid duplicates (bounded LRU-like cache)
 const seenAlertIds = new Set<string>();
 
 function addSeenAlert(key: string) {
   seenAlertIds.add(key);
-  // Simple bounded cache: remove oldest entries when limit exceeded
   if (seenAlertIds.size > MAX_SEEN_ALERTS) {
     const iterator = seenAlertIds.values();
     const oldest = iterator.next().value;
@@ -73,8 +71,7 @@ export function usePriceSubscription() {
       if (typeof payload === "string") {
         try {
           return encoder.decodeData(payload as `0x${string}`);
-        } catch (e) {
-          console.warn("[Hook] Failed to decode hex payload:", e);
+        } catch {
           return null;
         }
       }
@@ -83,7 +80,6 @@ export function usePriceSubscription() {
         return payload as DecodedFields;
       }
 
-      // Handle object with data property (some SDK versions)
       if (payload && typeof payload === "object" && "data" in payload) {
         const data = (payload as { data: unknown }).data;
         return decodePayload(data, encoder);
@@ -99,7 +95,6 @@ export function usePriceSubscription() {
       try {
         const decoded = decodePayload(payload, priceEncoder);
         if (!decoded || decoded.length < 6) {
-          console.warn("[Hook] Invalid price payload structure:", payload);
           return null;
         }
 
@@ -118,8 +113,6 @@ export function usePriceSubscription() {
           .padStart(decimals, "0")
           .slice(0, 2)}`;
 
-        console.log(`[Hook] Price update: ${symbol} = $${formatted}`);
-
         return {
           symbol,
           price: formatted,
@@ -129,8 +122,7 @@ export function usePriceSubscription() {
           timestamp,
           sourceAddress,
         };
-      } catch (err) {
-        console.error("[Hook] price decode error", err, payload);
+      } catch {
         return null;
       }
     },
@@ -140,27 +132,21 @@ export function usePriceSubscription() {
   const decodeAlert = useCallback(
     (payload: unknown): AlertNotification | null => {
       try {
-        console.log("[Hook] Received alert payload:", payload);
         const decoded = decodePayload(payload, alertEncoder);
-        // New event schema has 7 fields: alertId, userAddress, asset, condition, thresholdPrice, currentPrice, triggeredAt
         if (!decoded || decoded.length < 7) {
-          console.warn("[Hook] Invalid alert payload structure:", decoded);
           return null;
         }
 
         const alertId = String(extractFieldValue(decoded[0]));
-        
-        // Deduplicate
         const triggeredAtRaw = extractFieldValue(decoded[6]);
         const triggeredAt = Number(triggeredAtRaw as string | number | bigint);
         const dedupeKey = `${alertId}-${triggeredAt}`;
         if (seenAlertIds.has(dedupeKey)) {
-          console.log(`[Hook] Skipping duplicate alert: ${dedupeKey}`);
           return null;
         }
         addSeenAlert(dedupeKey);
 
-        const alert: AlertNotification = {
+        return {
           alertId,
           asset: String(extractFieldValue(decoded[2])),
           condition: String(extractFieldValue(decoded[3])),
@@ -168,18 +154,13 @@ export function usePriceSubscription() {
           currentPrice: String(extractFieldValue(decoded[5])),
           triggeredAt,
         };
-
-        console.log("[Hook] 🔔 Alert triggered:", alert);
-        return alert;
-      } catch (err) {
-        console.error("[Hook] alert decode error", err, payload);
+      } catch {
         return null;
       }
     },
     [alertEncoder, decodePayload],
   );
 
-  // Add alert externally (for polling fallback or testing)
   const addAlert = useCallback((alert: AlertNotification) => {
     const dedupeKey = `${alert.alertId}-${alert.triggeredAt}`;
     if (seenAlertIds.has(dedupeKey)) return;
@@ -187,7 +168,6 @@ export function usePriceSubscription() {
     setAlerts((prev) => [alert, ...prev].slice(0, 10));
   }, []);
 
-  // WebSocket subscription
   useEffect(() => {
     let wsClient: ReturnType<typeof createWsClient>;
     let sdk: SDK;
@@ -200,13 +180,11 @@ export function usePriceSubscription() {
         wsClient = createWsClient();
         sdk = new SDK({ public: wsClient });
 
-        console.log("[Hook] Subscribing to price events:", PRICE_UPDATE_EVENT_ID);
         const priceSub = await sdk.streams.subscribe({
           somniaStreamsEventId: PRICE_UPDATE_EVENT_ID,
           ethCalls: [],
           onlyPushChanges: false,
           onData: (data: unknown) => {
-            console.log("[Hook] Raw price data received:", typeof data);
             const price = decodePrice(data);
             if (price) {
               setPrices((prev) => {
@@ -217,42 +195,33 @@ export function usePriceSubscription() {
             }
           },
           onError: (err: Error) => {
-            console.error("[Hook] price subscription error", err);
             setError(err.message);
             setIsConnected(false);
-            // Attempt reconnect
             reconnectTimer = setTimeout(subscribe, 5000);
           },
         });
 
-        console.log("[Hook] Subscribing to alert events:", ALERT_TRIGGERED_EVENT_ID);
         const alertSub = await sdk.streams.subscribe({
           somniaStreamsEventId: ALERT_TRIGGERED_EVENT_ID,
           ethCalls: [],
           onlyPushChanges: false,
           onData: (data: unknown) => {
-            console.log("[Hook] Raw alert data received:", typeof data, data);
             const alert = decodeAlert(data);
             if (alert) {
               setAlerts((prev) => [alert, ...prev].slice(0, 10));
             }
           },
-          onError: (err: Error) => {
-            console.error("[Hook] alert subscription error", err);
-          },
+          onError: () => {},
         });
 
         unsubscribePrice = priceSub instanceof Error ? undefined : priceSub?.unsubscribe;
         unsubscribeAlert = alertSub instanceof Error ? undefined : alertSub?.unsubscribe;
         setIsConnected(true);
         setError(null);
-        console.log("[Hook] ✅ WebSocket subscriptions active");
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to subscribe";
-        console.error("[Hook] Subscription failed:", message);
         setError(message);
         setIsConnected(false);
-        // Attempt reconnect
         reconnectTimer = setTimeout(subscribe, 5000);
       }
     }
@@ -266,7 +235,6 @@ export function usePriceSubscription() {
     };
   }, [decodeAlert, decodePrice]);
 
-  // Polling fallback for alerts (in case WebSocket misses events)
   useEffect(() => {
     const pollInterval = setInterval(async () => {
       try {
@@ -275,16 +243,15 @@ export function usePriceSubscription() {
         
         const data = await response.json();
         if (data.success && data.alerts?.length) {
-          console.log("[Hook] Poll found triggered alerts:", data.alerts.length);
           data.alerts.forEach((alert: AlertNotification) => {
             addAlert(alert);
           });
           lastPollRef.current = Date.now();
         }
       } catch {
-        // Polling is best-effort, ignore errors
+        // Polling is best-effort
       }
-    }, 10000); // Poll every 10 seconds as fallback
+    }, 10000);
 
     return () => clearInterval(pollInterval);
   }, [addAlert]);
@@ -294,7 +261,6 @@ export function usePriceSubscription() {
     alerts,
     isConnected,
     error,
-    addAlert, // Expose for testing
+    addAlert,
   };
 }
-

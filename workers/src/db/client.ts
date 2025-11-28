@@ -304,30 +304,58 @@ export function addTrackedToken(coinId: string, symbol: string, name: string, ad
   const stmt = db.prepare(`
     INSERT INTO tracked_tokens (coin_id, symbol, name, added_by, added_at, is_active)
     VALUES (?, ?, ?, ?, ?, 1)
-    ON CONFLICT(coin_id) DO UPDATE SET
+    ON CONFLICT(coin_id, added_by) DO UPDATE SET
       is_active = 1,
-      added_by = CASE WHEN added_by = 'system' THEN excluded.added_by ELSE added_by END
+      symbol = excluded.symbol,
+      name = excluded.name
     RETURNING *
   `);
-  return stmt.get(coinId, symbol.toUpperCase(), name, addedBy, Math.floor(Date.now() / 1000)) as TrackedToken;
+  return stmt.get(coinId, symbol.toUpperCase(), name, addedBy.toLowerCase(), Math.floor(Date.now() / 1000)) as TrackedToken;
 }
 
-export function removeTrackedToken(coinId: string): boolean {
+export function removeTrackedToken(coinId: string, wallet: string): boolean {
   const db = getDb();
-  const stmt = db.prepare(`UPDATE tracked_tokens SET is_active = 0 WHERE coin_id = ?`);
-  return stmt.run(coinId).changes > 0;
+  const stmt = db.prepare(`UPDATE tracked_tokens SET is_active = 0 WHERE coin_id = ? AND LOWER(added_by) = LOWER(?)`);
+  return stmt.run(coinId, wallet).changes > 0;
 }
 
-export function getTrackedTokens(): TrackedToken[] {
+// Get all tracked tokens (system + user's own)
+export function getTrackedTokens(wallet?: string): TrackedToken[] {
   const db = getDb();
-  const stmt = db.prepare(`SELECT * FROM tracked_tokens WHERE is_active = 1 ORDER BY added_at`);
+  if (wallet) {
+    const stmt = db.prepare(`
+      SELECT * FROM tracked_tokens 
+      WHERE is_active = 1 AND (added_by = 'system' OR LOWER(added_by) = LOWER(?))
+      ORDER BY added_at
+    `);
+    return stmt.all(wallet) as TrackedToken[];
+  }
+  // No wallet = only system tokens
+  const stmt = db.prepare(`SELECT * FROM tracked_tokens WHERE is_active = 1 AND added_by = 'system' ORDER BY added_at`);
   return stmt.all() as TrackedToken[];
+}
+
+// Get only user's tracked tokens (not system)
+export function getUserTrackedTokens(wallet: string): TrackedToken[] {
+  const db = getDb();
+  const stmt = db.prepare(`
+    SELECT * FROM tracked_tokens 
+    WHERE is_active = 1 AND LOWER(added_by) = LOWER(?) AND added_by != 'system'
+    ORDER BY added_at
+  `);
+  return stmt.all(wallet) as TrackedToken[];
 }
 
 export function getTrackedTokenBySymbol(symbol: string): TrackedToken | null {
   const db = getDb();
-  const stmt = db.prepare(`SELECT * FROM tracked_tokens WHERE UPPER(symbol) = UPPER(?) AND is_active = 1`);
+  const stmt = db.prepare(`SELECT * FROM tracked_tokens WHERE UPPER(symbol) = UPPER(?) AND is_active = 1 LIMIT 1`);
   return stmt.get(symbol) as TrackedToken | null;
+}
+
+export function isTokenTrackedByUser(coinId: string, wallet: string): boolean {
+  const db = getDb();
+  const stmt = db.prepare(`SELECT 1 FROM tracked_tokens WHERE coin_id = ? AND LOWER(added_by) = LOWER(?) AND is_active = 1`);
+  return !!stmt.get(coinId, wallet);
 }
 
 // ============ Sentiment Alerts ============
@@ -387,6 +415,12 @@ export function triggerSentimentAlert(alertId: string): SentimentAlert | null {
 export function deleteSentimentAlert(alertId: string): boolean {
   const db = getDb();
   const stmt = db.prepare(`DELETE FROM sentiment_alerts WHERE id = ?`);
+  return stmt.run(alertId).changes > 0;
+}
+
+export function markSentimentAlertNotified(alertId: string): boolean {
+  const db = getDb();
+  const stmt = db.prepare(`UPDATE sentiment_alerts SET notified_at = strftime('%s', 'now') WHERE id = ?`);
   return stmt.run(alertId).changes > 0;
 }
 

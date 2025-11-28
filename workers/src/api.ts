@@ -12,6 +12,7 @@
 import { createServer, IncomingMessage, ServerResponse } from "http";
 import { keccak256, stringToBytes } from "viem";
 import { 
+  getDb,
   upsertTelegramLink, 
   verifyTelegramLink, 
   deleteTelegramLink,
@@ -37,6 +38,15 @@ import {
   type SentimentAlert,
 } from "./db/client.js";
 import { searchTokens, getCoinGeckoId, fetchCoinList } from "./services/token-registry.js";
+import { 
+  initStreamRegistry,
+  getActiveStreams,
+  getActiveSymbols,
+  isTokenSupported,
+  requestToken,
+  getStreamDocumentation,
+  type StreamType,
+} from "./services/stream-registry.js";
 
 const API_PORT = parseInt(process.env.PORT || process.env.WORKERS_API_PORT || "3001", 10);
 const API_SECRET = process.env.WORKERS_API_SECRET;
@@ -83,9 +93,84 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     return;
   }
 
-  // Health check
+  // Health check - basic
   if (path === "/health" && method === "GET") {
     return sendJson(res, 200, { status: "ok", timestamp: Date.now() });
+  }
+
+  // Health check - detailed status
+  if (path === "/api/health" && method === "GET") {
+    try {
+      const db = getDb();
+      
+      // Check database
+      const dbCheck = db.prepare("SELECT 1").get();
+      
+      // Get counts
+      const alertCount = (db.prepare("SELECT COUNT(*) as count FROM offchain_alerts WHERE status = 'ACTIVE'").get() as any)?.count || 0;
+      const sentimentAlertCount = (db.prepare("SELECT COUNT(*) as count FROM sentiment_alerts WHERE status = 'ACTIVE'").get() as any)?.count || 0;
+      const telegramLinks = (db.prepare("SELECT COUNT(*) as count FROM telegram_links WHERE verified = 1").get() as any)?.count || 0;
+      
+      // Get latest data timestamps
+      const latestPrice = (db.prepare("SELECT MAX(timestamp) as ts FROM price_history").get() as any)?.ts;
+      const latestFearGreed = getFearGreed();
+      const latestSentiments = getAllTokenSentiments();
+      const latestNews = getRecentNews(1);
+
+      // Stream registry stats
+      let streamCount = 0;
+      try {
+        streamCount = (db.prepare("SELECT COUNT(*) as count FROM stream_registry WHERE is_active = 1").get() as any)?.count || 0;
+      } catch {
+        // Registry might not be initialized
+      }
+
+      const now = Math.floor(Date.now() / 1000);
+      
+      return sendJson(res, 200, {
+        status: "ok",
+        timestamp: Date.now(),
+        uptime: process.uptime(),
+        version: "1.0.0",
+        database: {
+          connected: !!dbCheck,
+          activeAlerts: alertCount,
+          activeSentimentAlerts: sentimentAlertCount,
+          verifiedTelegramLinks: telegramLinks,
+          activeStreams: streamCount,
+        },
+        dataFreshness: {
+          prices: latestPrice ? {
+            lastUpdate: latestPrice,
+            ageSeconds: now - latestPrice,
+            stale: (now - latestPrice) > 120, // >2 min is stale
+          } : null,
+          fearGreed: latestFearGreed ? {
+            lastUpdate: latestFearGreed.timestamp,
+            ageSeconds: now - latestFearGreed.timestamp,
+            score: latestFearGreed.score,
+          } : null,
+          sentiment: {
+            tokenCount: latestSentiments.length,
+            lastUpdate: latestSentiments[0]?.timestamp || null,
+          },
+          news: {
+            latestTimestamp: latestNews[0]?.timestamp || null,
+          },
+        },
+        services: {
+          telegram: !!process.env.TELEGRAM_BOT_TOKEN,
+          coingecko: !!(process.env.COINGECKO_API_KEY_1 || process.env.COINGECKO_API_KEY),
+          cryptopanic: !!process.env.CRYPTOPANIC_API_KEY,
+        },
+      });
+    } catch (error) {
+      return sendJson(res, 500, {
+        status: "error",
+        timestamp: Date.now(),
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
   }
 
   // Public endpoints (no auth required)
@@ -98,6 +183,9 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     "/api/tokens/tracked",
     "/api/tokens/track",
     "/api/tokens/untrack",
+    "/api/streams",
+    "/api/streams/docs",
+    "/api/streams/request",
   ];
   const isPublicEndpoint = publicPaths.some(p => path.startsWith(p));
 
@@ -285,14 +373,14 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     // Remove tracked token
     if (path === "/api/tokens/untrack" && method === "POST") {
       const body = await parseBody(req);
-      const { coinId } = body;
+      const { coinId, wallet } = body;
 
-      if (!coinId) {
-        return sendJson(res, 400, { error: "coinId required" });
+      if (!coinId || !wallet) {
+        return sendJson(res, 400, { error: "coinId and wallet required" });
       }
 
-      const removed = removeTrackedToken(coinId);
-      console.log(`[API] Removed tracked token: ${coinId}: ${removed}`);
+      const removed = removeTrackedToken(coinId, wallet);
+      console.log(`[API] Removed tracked token: ${coinId} for ${wallet}: ${removed}`);
       return sendJson(res, 200, { success: true, removed });
     }
 
@@ -394,6 +482,79 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
         fearGreed,
         sentiments,
         news,
+      });
+    }
+
+    // ============ Stream Registry (DataGrid API) ============
+
+    // Get all active streams
+    if (path === "/api/streams" && method === "GET") {
+      const type = url.searchParams.get("type") as StreamType | null;
+      const streams = getActiveStreams(type || undefined);
+      return sendJson(res, 200, { 
+        success: true, 
+        streams,
+        count: streams.length,
+      });
+    }
+
+    // Get stream documentation for developers
+    if (path === "/api/streams/docs" && method === "GET") {
+      const docs = getStreamDocumentation();
+      return sendJson(res, 200, docs);
+    }
+
+    // Request a new token stream
+    if (path === "/api/streams/request" && method === "POST") {
+      const body = await parseBody(req);
+      const { symbol, name, coingeckoId, diaKey, type = "PRICE" } = body;
+
+      if (!symbol || !name) {
+        return sendJson(res, 400, { error: "symbol and name required" });
+      }
+
+      // Validate type
+      if (!["PRICE", "SENTIMENT"].includes(type)) {
+        return sendJson(res, 400, { error: "type must be PRICE or SENTIMENT" });
+      }
+
+      const result = requestToken({
+        symbol,
+        name,
+        coingeckoId,
+        diaKey,
+      }, type as StreamType);
+
+      return sendJson(res, result.success ? 200 : 400, result);
+    }
+
+    // Check if a token is supported
+    if (path === "/api/streams/check" && method === "GET") {
+      const symbol = url.searchParams.get("symbol");
+      const type = (url.searchParams.get("type") || "PRICE") as StreamType;
+
+      if (!symbol) {
+        return sendJson(res, 400, { error: "symbol required" });
+      }
+
+      const supported = isTokenSupported(symbol, type);
+      return sendJson(res, 200, { 
+        success: true, 
+        symbol: symbol.toUpperCase(),
+        type,
+        supported,
+      });
+    }
+
+    // Get active symbols for a stream type
+    if (path === "/api/streams/symbols" && method === "GET") {
+      const type = (url.searchParams.get("type") || "PRICE") as StreamType;
+      const symbols = getActiveSymbols(type);
+      return sendJson(res, 200, { 
+        success: true, 
+        type,
+        symbols,
+        count: symbols.length,
       });
     }
 

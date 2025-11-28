@@ -60,19 +60,23 @@ CREATE INDEX IF NOT EXISTS idx_notification_log_alert ON notification_log(alert_
 
 
 -- Tracked Tokens (user-selected tokens for sentiment tracking)
+-- Global tokens (added_by = 'system') are visible to all
+-- User tokens (added_by = wallet) are user-specific
 CREATE TABLE IF NOT EXISTS tracked_tokens (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  coin_id TEXT NOT NULL UNIQUE,
+  coin_id TEXT NOT NULL,
   symbol TEXT NOT NULL,
   name TEXT NOT NULL,
   added_by TEXT NOT NULL,
   added_at INTEGER NOT NULL,
   is_active INTEGER DEFAULT 1,
-  created_at INTEGER DEFAULT (strftime('%s', 'now'))
+  created_at INTEGER DEFAULT (strftime('%s', 'now')),
+  UNIQUE(coin_id, added_by)
 );
 
 CREATE INDEX IF NOT EXISTS idx_tracked_tokens_symbol ON tracked_tokens(symbol);
 CREATE INDEX IF NOT EXISTS idx_tracked_tokens_active ON tracked_tokens(is_active) WHERE is_active = 1;
+CREATE INDEX IF NOT EXISTS idx_tracked_tokens_user ON tracked_tokens(added_by);
 
 -- Sentiment Alerts (alerts based on sentiment changes)
 CREATE TABLE IF NOT EXISTS sentiment_alerts (

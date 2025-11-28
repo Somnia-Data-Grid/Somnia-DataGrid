@@ -13,8 +13,9 @@ import "dotenv/config";
 import { type Hex } from "viem";
 import { SchemaEncoder } from "@somnia-chain/streams";
 import { getDb, closeDb, insertPriceRecord } from "../db/client.js";
-import { coingeckoClient, COINGECKO_IDS } from "./coingecko.js";
+import { coingeckoClient } from "./coingecko.js";
 import { diaClient, DIA_ONLY_ASSETS, DIA_ASSET_KEYS } from "./dia.js";
+import { getAllCoingeckoIds, getActiveSymbols, initStreamRegistry } from "./stream-registry.js";
 import { checkAndTriggerAlerts, getActiveAlertCount } from "./alert-checker.js";
 import { initTxManager, getSDK, queueSetAndEmitEvents } from "./tx-manager.js";
 
@@ -28,11 +29,31 @@ const DIA_ORACLE_ADDRESS = "0x9206296Ea3aEE3E6bdC07F7AaeF14DfCf33d865D" as const
 
 // Config
 const PUBLISH_INTERVAL = parseInt(process.env.PUBLISH_INTERVAL_MS || "30000", 10);
-const SYMBOLS = (process.env.SYMBOLS || "BTC,ETH,USDC,USDT,STT").split(",").map(s => s.trim().toUpperCase());
+
+// Default symbols (fallback if registry not available)
+const DEFAULT_SYMBOLS = ["BTC", "ETH", "USDC", "USDT", "STT"];
+
+// Get symbols from env or stream registry
+function getSymbols(): string[] {
+  const envSymbols = process.env.SYMBOLS;
+  if (envSymbols) {
+    return envSymbols.split(",").map(s => s.trim().toUpperCase());
+  }
+  // Fall back to stream registry, then defaults
+  try {
+    const registrySymbols = getActiveSymbols("PRICE");
+    return registrySymbols.length > 0 ? registrySymbols : DEFAULT_SYMBOLS;
+  } catch {
+    return DEFAULT_SYMBOLS;
+  }
+}
 
 // Fetch prices from all sources
 async function fetchAllPrices(symbols: string[]): Promise<Map<string, { price: bigint; timestamp: bigint; source: string }>> {
   const results = new Map<string, { price: bigint; timestamp: bigint; source: string }>();
+
+  // Get CoinGecko IDs from stream registry
+  const COINGECKO_IDS = getAllCoingeckoIds();
 
   // Separate symbols by source
   const diaOnlySymbols = symbols.filter(s => DIA_ONLY_ASSETS.includes(s));
@@ -78,7 +99,8 @@ async function fetchAllPrices(symbols: string[]): Promise<Map<string, { price: b
   }
 
   // Try DIA as fallback for any CoinGecko failures
-  const missingSymbols = coingeckoSymbols.filter(s => !results.has(s) && DIA_ASSET_KEYS[s]);
+  const COINGECKO_IDS_FALLBACK = getAllCoingeckoIds();
+  const missingSymbols = symbols.filter(s => !results.has(s) && COINGECKO_IDS_FALLBACK[s] && DIA_ASSET_KEYS[s]);
   if (missingSymbols.length > 0 && diaClient.isEnabled()) {
     console.log(`[Publisher] Trying DIA fallback for: ${missingSymbols.join(", ")}`);
     try {
@@ -185,6 +207,13 @@ async function publishPrices(symbols: string[]): Promise<void> {
 async function main() {
   const runOnce = process.argv.includes("--once");
 
+  // Initialize stream registry (if not already done)
+  initStreamRegistry();
+
+  // Get symbols from env or registry
+  const SYMBOLS = getSymbols();
+  const COINGECKO_IDS = getAllCoingeckoIds();
+
   console.log("═".repeat(60));
   console.log("🚀 Somnia Price Publisher");
   console.log("═".repeat(60));
@@ -243,7 +272,9 @@ async function main() {
 
   while (running) {
     try {
-      await publishPrices(SYMBOLS);
+      // Re-fetch symbols each iteration (allows dynamic updates)
+      const currentSymbols = getSymbols();
+      await publishPrices(currentSymbols);
     } catch (error) {
       console.error("[Publisher] Error:", error);
     }

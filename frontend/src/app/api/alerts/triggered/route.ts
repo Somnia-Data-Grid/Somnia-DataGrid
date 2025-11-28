@@ -26,16 +26,26 @@ export async function GET(request: NextRequest) {
       url.searchParams.set("wallet", wallet);
     }
 
-    const response = await fetch(url.toString(), {
-      headers: {
-        ...(WORKERS_API_SECRET && { Authorization: `Bearer ${WORKERS_API_SECRET}` }),
-      },
-    });
+    let data: { success: boolean; alerts?: any[]; error?: string };
+    
+    try {
+      const response = await fetch(url.toString(), {
+        headers: {
+          ...(WORKERS_API_SECRET && { Authorization: `Bearer ${WORKERS_API_SECRET}` }),
+        },
+        // Short timeout for polling endpoint
+        signal: AbortSignal.timeout(5000),
+      });
 
-    const data = await response.json();
+      data = await response.json();
 
-    if (!response.ok || !data.success) {
-      throw new Error(data.error || "Failed to fetch alerts");
+      if (!response.ok || !data.success) {
+        // Workers API error - return empty result instead of 500
+        return NextResponse.json({ success: true, alerts: [] });
+      }
+    } catch {
+      // Workers API unreachable - return empty result
+      return NextResponse.json({ success: true, alerts: [] });
     }
 
     // Filter to only triggered alerts
@@ -63,11 +73,8 @@ export async function GET(request: NextRequest) {
       success: true,
       alerts: triggeredAlerts,
     });
-  } catch (error) {
-    console.error("[API] triggered alerts error", error);
-    return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : "Unknown error" },
-      { status: 500 },
-    );
+  } catch {
+    // Return empty result on any error - this is a polling endpoint
+    return NextResponse.json({ success: true, alerts: [] });
   }
 }

@@ -158,17 +158,17 @@ export function addTrackedToken(coinId: string, symbol: string, name: string, ad
 }
 
 /**
- * Remove a token from tracking
+ * Remove a token from tracking for a specific user
  */
-export function removeTrackedToken(coinId: string): boolean {
-  return dbRemoveTrackedToken(coinId);
+export function removeTrackedToken(coinId: string, wallet: string): boolean {
+  return dbRemoveTrackedToken(coinId, wallet);
 }
 
 /**
- * Get all active tracked tokens
+ * Get all active tracked tokens (system + user's own if wallet provided)
  */
-export function getTrackedTokens(): TrackedToken[] {
-  return dbGetTrackedTokens();
+export function getTrackedTokens(wallet?: string): TrackedToken[] {
+  return dbGetTrackedTokens(wallet);
 }
 
 /**

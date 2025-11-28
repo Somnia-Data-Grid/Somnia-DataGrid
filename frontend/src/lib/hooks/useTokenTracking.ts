@@ -107,12 +107,12 @@ export function useTokenTracking() {
     }
   }, [fetchTrackedTokens]);
 
-  const untrackToken = useCallback(async (coinId: string) => {
+  const untrackToken = useCallback(async (coinId: string, walletAddress?: string) => {
     try {
       const res = await fetch(`${API_BASE}/api/tokens/untrack`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ coinId }),
+        body: JSON.stringify({ coinId, wallet: walletAddress }),
       });
       const data = await res.json();
       

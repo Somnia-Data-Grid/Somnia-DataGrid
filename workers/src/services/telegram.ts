@@ -145,3 +145,87 @@ If you see this, your Telegram notifications are working!
 
   return sendTelegramMessage(chatId, message);
 }
+
+// ============ Sentiment Alert Notifications ============
+
+interface SentimentAlertParams {
+  alertId: string;
+  walletAddress: string;
+  symbol: string;
+  alertType: "SENTIMENT_UP" | "SENTIMENT_DOWN" | "FEAR_GREED";
+  threshold: number;
+  currentValue: number;
+}
+
+/**
+ * Send a sentiment alert notification to a user's linked Telegram
+ */
+export async function sendSentimentAlertNotification(params: SentimentAlertParams): Promise<boolean> {
+  const { alertId, walletAddress, symbol, alertType, threshold, currentValue } = params;
+
+  const link = getTelegramLink(walletAddress);
+  if (!link || !link.verified) {
+    console.log(`[Telegram] No verified Telegram link for ${walletAddress.slice(0, 10)}...`);
+    logNotification(alertId, walletAddress, null, "sentiment_alert", "failed", "No verified Telegram link");
+    return false;
+  }
+
+  let emoji: string;
+  let title: string;
+  let description: string;
+
+  switch (alertType) {
+    case "SENTIMENT_UP":
+      emoji = "📈";
+      title = "Bullish Sentiment Alert!";
+      description = `${symbol} sentiment has risen above ${threshold}%`;
+      break;
+    case "SENTIMENT_DOWN":
+      emoji = "📉";
+      title = "Bearish Sentiment Alert!";
+      description = `${symbol} sentiment has dropped below ${threshold}%`;
+      break;
+    case "FEAR_GREED":
+      emoji = currentValue >= 50 ? "🟢" : "🔴";
+      title = "Fear & Greed Alert!";
+      description = currentValue >= threshold 
+        ? `Market sentiment has risen to ${currentValue} (Greed zone)`
+        : `Market sentiment has dropped to ${currentValue} (Fear zone)`;
+      break;
+    default:
+      emoji = "📊";
+      title = "Sentiment Alert!";
+      description = `${symbol} sentiment threshold reached`;
+  }
+
+  const message = `
+${emoji} <b>${title}</b>
+
+<b>Asset:</b> ${symbol}
+<b>Alert Type:</b> ${alertType.replace("_", " ")}
+<b>Threshold:</b> ${threshold}${alertType === "FEAR_GREED" ? "" : "%"}
+<b>Current Value:</b> ${currentValue}${alertType === "FEAR_GREED" ? "" : "%"}
+<b>Time:</b> ${new Date().toUTCString()}
+
+<i>${description}</i>
+
+<i>Wallet: ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}</i>
+`.trim();
+
+  const success = await sendTelegramMessage(link.telegram_chat_id, message);
+  
+  logNotification(
+    alertId,
+    walletAddress,
+    link.telegram_chat_id,
+    "sentiment_alert",
+    success ? "success" : "failed",
+    success ? undefined : "Failed to send message"
+  );
+
+  if (success) {
+    console.log(`[Telegram] ✅ Sentiment alert sent for ${symbol} to ${link.telegram_username || link.telegram_chat_id}`);
+  }
+
+  return success;
+}

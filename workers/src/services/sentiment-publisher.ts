@@ -23,6 +23,7 @@ import {
   upsertNews,
   cleanOldNews,
 } from "../db/client.js";
+import { checkSentimentAlerts, getActiveSentimentAlertCount } from "./sentiment-alert-checker.js";
 
 import {
   FEAR_GREED_SCHEMA,
@@ -224,6 +225,12 @@ async function runFearGreedLoop() {
       if (data && data.score !== lastFearGreedScore) {
         await publishFearGreed(data);
         lastFearGreedScore = data.score;
+        
+        // Check sentiment alerts after Fear & Greed update
+        const triggered = await checkSentimentAlerts();
+        if (triggered.length > 0) {
+          console.log(`[Sentiment] Triggered ${triggered.length} sentiment alert(s)`);
+        }
       }
     } catch (error) {
       console.error("[Sentiment] Fear & Greed error:", error instanceof Error ? error.message : error);
@@ -242,6 +249,12 @@ async function runSentimentLoop() {
         } catch (error) {
           console.error(`[Sentiment] Failed to publish ${symbol}:`, error instanceof Error ? error.message : error);
         }
+      }
+      
+      // Check sentiment alerts after token sentiment updates
+      const triggered = await checkSentimentAlerts();
+      if (triggered.length > 0) {
+        console.log(`[Sentiment] Triggered ${triggered.length} sentiment alert(s)`);
       }
     } catch (error) {
       console.error("[Sentiment] Token sentiment error:", error instanceof Error ? error.message : error);
@@ -315,6 +328,7 @@ export async function startSentimentPublisher() {
 
   console.log(`[Sentiment] Fear & Greed API: ${fgPing ? "✓ connected" : "✗ failed"}`);
   console.log(`[Sentiment] CryptoPanic API: ${cpPing ? "✓ connected" : "✗ disabled"}`);
+  console.log(`[Sentiment] Active sentiment alerts: ${getActiveSentimentAlertCount()}`);
 
   // Initialize shared transaction manager (if not already done by price publisher)
   initTxManager();

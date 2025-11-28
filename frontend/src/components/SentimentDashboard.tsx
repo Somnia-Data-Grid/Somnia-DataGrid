@@ -7,6 +7,7 @@ import { SentimentGrid } from "./SentimentCard";
 import { NewsTicker } from "./NewsTicker";
 import { TokenSearch } from "./TokenSearch";
 import { SentimentAlertManager } from "./SentimentAlertManager";
+import { CryptoPanicWidget } from "./CryptoPanicWidget";
 
 type Tab = 'overview' | 'tokens' | 'alerts';
 
@@ -107,8 +108,11 @@ export function SentimentDashboard() {
             </div>
           </div>
 
-          {/* News Ticker */}
-          <NewsTicker news={news} maxItems={10} />
+          {/* News Section - Ticker + Live Widget */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            <NewsTicker news={news} maxItems={10} />
+            <CryptoPanicWidget currencies="BTC,ETH,SOL,STT" />
+          </div>
         </>
       )}
 
