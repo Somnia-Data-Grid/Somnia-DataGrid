@@ -182,6 +182,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
 
   // Public endpoints (no auth required)
   const publicPaths = [
+    "/api/health",
     "/api/sentiment",
     "/api/sentiment/fear-greed",
     "/api/sentiment/tokens", 
@@ -193,6 +194,8 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     "/api/streams",
     "/api/streams/docs",
     "/api/streams/request",
+    "/api/streams/check",
+    "/api/streams/symbols",
   ];
   const isPublicEndpoint = publicPaths.some(p => path.startsWith(p));
 
