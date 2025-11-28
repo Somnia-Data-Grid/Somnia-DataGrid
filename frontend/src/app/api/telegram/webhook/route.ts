@@ -242,11 +242,8 @@ async function handleAlerts(chatId: number) {
   }
 
   try {
-    // Get alerts from blockchain (Somnia Data Streams)
-    const allAlerts = await getActiveAlerts();
-    const userAlerts = allAlerts.filter(
-      (a) => a.userAddress.toLowerCase() === link.walletAddress.toLowerCase()
-    );
+    // Get alerts for this wallet
+    const userAlerts = await getActiveAlerts(link.walletAddress);
 
     if (userAlerts.length === 0) {
       await sendMessage(chatId, `📭 You have no active alerts.\n\nWallet: <code>${link.walletAddress.slice(0, 10)}...</code>\n\nCreate alerts on the dashboard to get notified here!`);
@@ -255,7 +252,7 @@ async function handleAlerts(chatId: number) {
 
     const alertList = userAlerts
       .map((a, i) => {
-        const threshold = formatPrice(a.thresholdPrice, 8, 2);
+        const threshold = formatPrice(BigInt(a.threshold_price), 8, 2);
         return `${i + 1}. <b>${a.asset}</b> ${a.condition} ${threshold}`;
       })
       .join("\n");

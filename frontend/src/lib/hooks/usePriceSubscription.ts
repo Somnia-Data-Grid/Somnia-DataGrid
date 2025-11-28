@@ -28,6 +28,7 @@ export interface AlertNotification {
   asset: string;
   condition: string;
   thresholdPrice: string;
+  currentPrice: string;
   triggeredAt: number;
 }
 
@@ -141,22 +142,16 @@ export function usePriceSubscription() {
       try {
         console.log("[Hook] Received alert payload:", payload);
         const decoded = decodePayload(payload, alertEncoder);
-        if (!decoded || decoded.length < 8) {
+        // New event schema has 7 fields: alertId, userAddress, asset, condition, thresholdPrice, currentPrice, triggeredAt
+        if (!decoded || decoded.length < 7) {
           console.warn("[Hook] Invalid alert payload structure:", decoded);
           return null;
         }
 
         const alertId = String(extractFieldValue(decoded[0]));
-        const status = String(extractFieldValue(decoded[5]));
         
-        // Only process TRIGGERED alerts
-        if (status !== "TRIGGERED") {
-          console.log(`[Hook] Skipping alert with status: ${status}`);
-          return null;
-        }
-
         // Deduplicate
-        const triggeredAtRaw = extractFieldValue(decoded[7]);
+        const triggeredAtRaw = extractFieldValue(decoded[6]);
         const triggeredAt = Number(triggeredAtRaw as string | number | bigint);
         const dedupeKey = `${alertId}-${triggeredAt}`;
         if (seenAlertIds.has(dedupeKey)) {
@@ -170,6 +165,7 @@ export function usePriceSubscription() {
           asset: String(extractFieldValue(decoded[2])),
           condition: String(extractFieldValue(decoded[3])),
           thresholdPrice: String(extractFieldValue(decoded[4])),
+          currentPrice: String(extractFieldValue(decoded[5])),
           triggeredAt,
         };
 

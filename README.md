@@ -12,18 +12,22 @@ Somnia DataGrid is a shared data layer for the Somnia ecosystem built on top of 
 
 | Component | Description |
 |-----------|-------------|
-| **Somnia DataGrid** (`workers/`) | Off-chain workers that publish on-chain price feeds for the whole ecosystem |
+| **Somnia DataGrid** (`workers/`) | Off-chain workers that publish on-chain market data streams |
 | **Somnia AlertGrid** (`frontend/`) | Reference dapp that subscribes to DataGrid streams for DeFi alerts and dashboards |
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                      Somnia DataGrid                             │
-│              (workers/ - Price Publisher Service)                │
+│              (workers/ - Market Data Publisher)                  │
 ├─────────────────────────────────────────────────────────────────┤
-│  • Aggregates prices from CoinGecko + DIA Oracle                │
-│  • Publishes to Somnia Data Streams (on-chain)                  │
-│  • Emits PriceUpdateV2 events for real-time subscriptions       │
-│  • Future: Fear/greed indices, token sentiment                  │
+│  📈 Price Feeds                                                 │
+│  • CoinGecko + DIA Oracle → PriceUpdateV2 events                │
+│                                                                  │
+│  📊 Sentiment Streams                                           │
+│  • Fear & Greed Index → FearGreedUpdateV1 events                │
+│  • Token Crowd Sentiment → TokenSentimentUpdateV1 events        │
+│  • News Events → NewsEventV1 events (CryptoPanic)               │
+│  • News Aggregates → NewsAggregateV1 events                     │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               │ Somnia Data Streams
@@ -89,12 +93,21 @@ npm run dev
 
 ---
 
-## Supported Price Feeds
+## Data Streams
 
+### Price Feeds
 | Source | Assets |
 |--------|--------|
 | **CoinGecko** | BTC, ETH, USDC, USDT, ARB, SOL, WETH, LINK, UNI, AAVE, MATIC, AVAX, and more |
 | **DIA Oracle** | SOMI (Somnia token), BTC, ETH, USDC, USDT, ARB, SOL |
+
+### Sentiment Streams
+| Stream | Source | Update Frequency |
+|--------|--------|------------------|
+| **Fear & Greed Index** | Alternative.me | Daily |
+| **Token Crowd Sentiment** | CoinGecko votes | Every 2 hours |
+| **News Events** | CryptoPanic | Real-time (60s poll) |
+| **News Aggregates** | CryptoPanic | Every 10 minutes |
 
 ---
 
@@ -171,8 +184,11 @@ somnia-datagrid/
 - [x] Real-time WebSocket subscriptions
 - [x] AlertGrid reference dapp
 - [x] Telegram notifications
-- [ ] Fear/greed index stream
-- [ ] Token sentiment stream
+- [x] Fear & Greed Index stream
+- [x] Token Crowd Sentiment stream
+- [x] News Events stream (CryptoPanic)
+- [x] News Aggregates stream
+- [ ] LLM-enriched narrative sentiment (optional)
 - [ ] More price sources
 
 ---
