@@ -88,8 +88,19 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     return sendJson(res, 200, { status: "ok", timestamp: Date.now() });
   }
 
-  // Auth required for other endpoints
-  if (!verifyAuth(req)) {
+  // Public endpoints (no auth required)
+  const publicPaths = [
+    "/api/sentiment",
+    "/api/sentiment/fear-greed",
+    "/api/sentiment/tokens", 
+    "/api/sentiment/news",
+    "/api/tokens/search",
+    "/api/tokens/tracked",
+  ];
+  const isPublicEndpoint = publicPaths.some(p => path.startsWith(p));
+
+  // Auth required for non-public endpoints
+  if (!isPublicEndpoint && !verifyAuth(req)) {
     return sendJson(res, 401, { error: "Unauthorized" });
   }
 
