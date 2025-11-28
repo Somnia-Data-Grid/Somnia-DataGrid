@@ -35,7 +35,7 @@ export async function checkSentimentAlerts(): Promise<string[]> {
     const shouldTrigger = await evaluateAlert(alert);
     
     if (shouldTrigger.trigger) {
-      console.log(`[SentimentChecker] 🔔 Alert triggered: ${alert.symbol} ${alert.alert_type} (threshold: ${alert.threshold}, current: ${shouldTrigger.currentValue})`);
+      console.log(`[SentimentChecker] 🔔 Alert triggered: ${alert.symbol} ${alert.alertType} (threshold: ${alert.threshold}, current: ${shouldTrigger.currentValue})`);
 
       triggeredSentimentAlertIds.add(alert.id);
       triggered.push(alert.id);
@@ -50,9 +50,9 @@ export async function checkSentimentAlerts(): Promise<string[]> {
       // Send Telegram notification
       sendSentimentAlertNotification({
         alertId: alert.id,
-        walletAddress: alert.wallet_address,
+        walletAddress: alert.walletAddress,
         symbol: alert.symbol,
-        alertType: alert.alert_type,
+        alertType: alert.alertType,
         threshold: alert.threshold,
         currentValue: shouldTrigger.currentValue,
       }).then(sent => {
@@ -64,7 +64,7 @@ export async function checkSentimentAlerts(): Promise<string[]> {
         console.error(`[SentimentChecker] Failed to send notification:`, error);
         logNotification(
           alert.id,
-          alert.wallet_address,
+          alert.walletAddress,
           null,
           "sentiment_alert",
           "failed",
@@ -83,7 +83,7 @@ interface EvaluationResult {
 }
 
 async function evaluateAlert(alert: SentimentAlert): Promise<EvaluationResult> {
-  switch (alert.alert_type) {
+  switch (alert.alertType) {
     case "FEAR_GREED": {
       const fg = getFearGreed();
       if (!fg) return { trigger: false, currentValue: 0 };

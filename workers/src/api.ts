@@ -12,7 +12,7 @@
 import { createServer, IncomingMessage, ServerResponse } from "http";
 import { keccak256, stringToBytes } from "viem";
 import { 
-  getDb,
+  getSqlite,
   upsertTelegramLink, 
   verifyTelegramLink, 
   deleteTelegramLink,
@@ -32,10 +32,6 @@ import {
   getFearGreed,
   getAllTokenSentiments,
   getRecentNews,
-  type TelegramLink,
-  type OffchainAlert,
-  type TrackedToken,
-  type SentimentAlert,
 } from "./db/client.js";
 import { searchTokens, getCoinGeckoId, fetchCoinList } from "./services/token-registry.js";
 import { 
@@ -108,18 +104,18 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
   // Health check - detailed status
   if (path === "/api/health" && method === "GET") {
     try {
-      const db = getDb();
+      const sqlite = getSqlite();
       
       // Check database
-      const dbCheck = db.prepare("SELECT 1").get();
+      const dbCheck = sqlite.prepare("SELECT 1").get();
       
       // Get counts
-      const alertCount = (db.prepare("SELECT COUNT(*) as count FROM offchain_alerts WHERE status = 'ACTIVE'").get() as any)?.count || 0;
-      const sentimentAlertCount = (db.prepare("SELECT COUNT(*) as count FROM sentiment_alerts WHERE status = 'ACTIVE'").get() as any)?.count || 0;
-      const telegramLinks = (db.prepare("SELECT COUNT(*) as count FROM telegram_links WHERE verified = 1").get() as any)?.count || 0;
+      const alertCount = (sqlite.prepare("SELECT COUNT(*) as count FROM offchain_alerts WHERE status = 'ACTIVE'").get() as any)?.count || 0;
+      const sentimentAlertCount = (sqlite.prepare("SELECT COUNT(*) as count FROM sentiment_alerts WHERE status = 'ACTIVE'").get() as any)?.count || 0;
+      const telegramLinks = (sqlite.prepare("SELECT COUNT(*) as count FROM telegram_links WHERE verified = 1").get() as any)?.count || 0;
       
       // Get latest data timestamps
-      const latestPrice = (db.prepare("SELECT MAX(timestamp) as ts FROM price_history").get() as any)?.ts;
+      const latestPrice = (sqlite.prepare("SELECT MAX(timestamp) as ts FROM price_history").get() as any)?.ts;
       const latestFearGreed = getFearGreed();
       const latestSentiments = getAllTokenSentiments();
       const latestNews = getRecentNews(1);
@@ -127,7 +123,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       // Stream registry stats
       let streamCount = 0;
       try {
-        streamCount = (db.prepare("SELECT COUNT(*) as count FROM stream_registry WHERE is_active = 1").get() as any)?.count || 0;
+        streamCount = (sqlite.prepare("SELECT COUNT(*) as count FROM stream_registry WHERE is_active = 1").get() as any)?.count || 0;
       } catch {
         // Registry might not be initialized
       }

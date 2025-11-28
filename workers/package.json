@@ -7,20 +7,25 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "build": "tsc",
-    "db:migrate": "tsx src/db/migrate.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
     "publisher": "tsx src/services/price-publisher.ts",
     "publisher:once": "tsx src/services/price-publisher.ts --once",
     "register-sentiment-schemas": "tsx src/register-sentiment-schemas.ts"
   },
   "dependencies": {
+    "@somnia-chain/streams": "^0.11.0",
     "better-sqlite3": "^11.6.0",
     "dotenv": "^16.4.5",
-    "viem": "^2.21.0",
-    "@somnia-chain/streams": "^0.11.0"
+    "drizzle-orm": "0.44.7",
+    "viem": "^2.21.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.11",
     "@types/node": "^22.0.0",
+    "drizzle-kit": "0.31.7",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   }

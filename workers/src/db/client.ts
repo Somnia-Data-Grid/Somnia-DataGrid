@@ -1,456 +1,54 @@
 /**
- * SQLite Database Client
+ * Database Client (Drizzle ORM)
  * 
- * Fast, reliable storage for:
+ * Type-safe database operations for:
  * - Telegram wallet links
  * - Off-chain alerts
  * - Price history
- * - Notification logs
+ * - Sentiment data
  */
 
 import Database from "better-sqlite3";
-import { readFileSync, existsSync, mkdirSync } from "fs";
-import { dirname, join } from "path";
-import { fileURLToPath } from "url";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { eq, and, desc, sql, or } from "drizzle-orm";
+import { existsSync, mkdirSync } from "fs";
+import { dirname } from "path";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+import * as schema from "./schema.js";
+import {
+  telegramLinks,
+  offchainAlerts,
+  priceHistory,
+  notificationLog,
+  trackedTokens,
+  sentimentAlerts,
+  fearGreedCache,
+  tokenSentimentCache,
+  newsCache,
+} from "./schema.js";
 
-// Types
-export interface TelegramLink {
-  id?: number;
-  wallet_address: string;
-  telegram_chat_id: string;
-  telegram_username?: string;
-  linked_at: number;
-  verified: number;
-}
+// Re-export types from schema
+export type {
+  TelegramLink,
+  OffchainAlert,
+  PriceRecord,
+  TrackedToken,
+  SentimentAlert,
+  FearGreedCache,
+  TokenSentimentCache,
+  NewsCache,
+} from "./schema.js";
 
-export interface OffchainAlert {
-  id: string;
-  wallet_address: string;
-  asset: string;
-  condition: "ABOVE" | "BELOW";
-  threshold_price: string;
-  status: "ACTIVE" | "TRIGGERED" | "DISABLED";
-  created_at: number;
-  triggered_at?: number;
-  notified_at?: number;
-}
-
-export interface PriceRecord {
-  id?: number;
-  symbol: string;
-  price: string;
-  decimals: number;
-  source: string;
-  timestamp: number;
-}
-
-export interface TrackedToken {
-  id?: number;
-  coin_id: string;
-  symbol: string;
-  name: string;
-  added_by: string;
-  added_at: number;
-  is_active: number;
-}
-
-export interface SentimentAlert {
-  id: string;
-  wallet_address: string;
-  coin_id: string;
-  symbol: string;
-  alert_type: "SENTIMENT_UP" | "SENTIMENT_DOWN" | "FEAR_GREED";
-  threshold: number;
-  status: "ACTIVE" | "TRIGGERED" | "DISABLED";
-  created_at: number;
-  triggered_at?: number;
-  notified_at?: number;
-}
-
-// Singleton database instance
-let db: Database.Database | null = null;
-
-export function getDb(): Database.Database {
-  if (db) return db;
-
-  const dbPath = process.env.DATABASE_PATH || "./data/alerts.db";
-  const dbDir = dirname(dbPath);
-
-  // Ensure directory exists
-  if (!existsSync(dbDir)) {
-    mkdirSync(dbDir, { recursive: true });
-  }
-
-  db = new Database(dbPath);
-  db.pragma("journal_mode = WAL"); // Better concurrent access
-  db.pragma("synchronous = NORMAL"); // Good balance of speed/safety
-
-  // Run migrations
-  const schemaPath = join(__dirname, "schema.sql");
-  if (existsSync(schemaPath)) {
-    const schema = readFileSync(schemaPath, "utf-8");
-    db.exec(schema);
-  }
-
-  console.log(`[DB] Connected to ${dbPath}`);
-  return db;
-}
-
-export function closeDb() {
-  if (db) {
-    db.close();
-    db = null;
-  }
-}
-
-// ============ Telegram Links ============
-
-export function getTelegramLink(walletAddress: string): TelegramLink | null {
-  const db = getDb();
-  const stmt = db.prepare(`
-    SELECT * FROM telegram_links 
-    WHERE LOWER(wallet_address) = LOWER(?)
-  `);
-  return stmt.get(walletAddress) as TelegramLink | null;
-}
-
-export function getTelegramLinkByChatId(chatId: string): TelegramLink | null {
-  const db = getDb();
-  const stmt = db.prepare(`
-    SELECT * FROM telegram_links 
-    WHERE telegram_chat_id = ?
-  `);
-  return stmt.get(chatId) as TelegramLink | null;
-}
-
-export function upsertTelegramLink(link: Omit<TelegramLink, "id">): TelegramLink {
-  const db = getDb();
-  const stmt = db.prepare(`
-    INSERT INTO telegram_links (wallet_address, telegram_chat_id, telegram_username, linked_at, verified)
-    VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(wallet_address) DO UPDATE SET
-      telegram_chat_id = excluded.telegram_chat_id,
-      telegram_username = excluded.telegram_username,
-      linked_at = excluded.linked_at,
-      verified = excluded.verified,
-      updated_at = strftime('%s', 'now')
-    RETURNING *
-  `);
-  return stmt.get(
-    link.wallet_address.toLowerCase(),
-    link.telegram_chat_id,
-    link.telegram_username || null,
-    link.linked_at,
-    link.verified
-  ) as TelegramLink;
-}
-
-export function verifyTelegramLink(walletAddress: string): boolean {
-  const db = getDb();
-  const stmt = db.prepare(`
-    UPDATE telegram_links 
-    SET verified = 1, updated_at = strftime('%s', 'now')
-    WHERE LOWER(wallet_address) = LOWER(?)
-  `);
-  const result = stmt.run(walletAddress);
-  return result.changes > 0;
-}
-
-export function deleteTelegramLink(walletAddress: string): boolean {
-  const db = getDb();
-  const stmt = db.prepare(`
-    DELETE FROM telegram_links 
-    WHERE LOWER(wallet_address) = LOWER(?)
-  `);
-  const result = stmt.run(walletAddress);
-  return result.changes > 0;
-}
-
-// ============ Off-chain Alerts ============
-
-export function createOffchainAlert(alert: OffchainAlert): OffchainAlert {
-  const db = getDb();
-  const stmt = db.prepare(`
-    INSERT INTO offchain_alerts (id, wallet_address, asset, condition, threshold_price, status, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-    RETURNING *
-  `);
-  return stmt.get(
-    alert.id,
-    alert.wallet_address.toLowerCase(),
-    alert.asset.toUpperCase(),
-    alert.condition,
-    alert.threshold_price,
-    alert.status,
-    alert.created_at
-  ) as OffchainAlert;
-}
-
-export function getActiveAlertsByAsset(asset: string): OffchainAlert[] {
-  const db = getDb();
-  const stmt = db.prepare(`
-    SELECT * FROM offchain_alerts 
-    WHERE status = 'ACTIVE' AND UPPER(asset) = UPPER(?)
-  `);
-  return stmt.all(asset) as OffchainAlert[];
-}
-
-export function getActiveAlerts(): OffchainAlert[] {
-  const db = getDb();
-  const stmt = db.prepare(`
-    SELECT * FROM offchain_alerts 
-    WHERE status = 'ACTIVE'
-    ORDER BY created_at DESC
-  `);
-  return stmt.all() as OffchainAlert[];
-}
-
-export function getAlertsByWallet(walletAddress: string): OffchainAlert[] {
-  const db = getDb();
-  const stmt = db.prepare(`
-    SELECT * FROM offchain_alerts 
-    WHERE LOWER(wallet_address) = LOWER(?)
-    ORDER BY created_at DESC
-  `);
-  return stmt.all(walletAddress) as OffchainAlert[];
-}
-
-export function triggerAlert(alertId: string): OffchainAlert | null {
-  const db = getDb();
-  const stmt = db.prepare(`
-    UPDATE offchain_alerts 
-    SET status = 'TRIGGERED', triggered_at = strftime('%s', 'now')
-    WHERE id = ? AND status = 'ACTIVE'
-    RETURNING *
-  `);
-  return stmt.get(alertId) as OffchainAlert | null;
-}
-
-export function markAlertNotified(alertId: string): boolean {
-  const db = getDb();
-  const stmt = db.prepare(`
-    UPDATE offchain_alerts 
-    SET notified_at = strftime('%s', 'now')
-    WHERE id = ?
-  `);
-  const result = stmt.run(alertId);
-  return result.changes > 0;
-}
-
-export function deleteAlert(alertId: string): boolean {
-  const db = getDb();
-  const stmt = db.prepare(`DELETE FROM offchain_alerts WHERE id = ?`);
-  const result = stmt.run(alertId);
-  return result.changes > 0;
-}
-
-// ============ Price History ============
-
-export function insertPriceRecord(record: Omit<PriceRecord, "id">): void {
-  const db = getDb();
-  const stmt = db.prepare(`
-    INSERT INTO price_history (symbol, price, decimals, source, timestamp)
-    VALUES (?, ?, ?, ?, ?)
-  `);
-  stmt.run(record.symbol, record.price, record.decimals, record.source, record.timestamp);
-}
-
-export function getLatestPrice(symbol: string): PriceRecord | null {
-  const db = getDb();
-  const stmt = db.prepare(`
-    SELECT * FROM price_history 
-    WHERE UPPER(symbol) = UPPER(?)
-    ORDER BY timestamp DESC
-    LIMIT 1
-  `);
-  return stmt.get(symbol) as PriceRecord | null;
-}
-
-export function getPriceHistory(symbol: string, limit = 100): PriceRecord[] {
-  const db = getDb();
-  const stmt = db.prepare(`
-    SELECT * FROM price_history 
-    WHERE UPPER(symbol) = UPPER(?)
-    ORDER BY timestamp DESC
-    LIMIT ?
-  `);
-  return stmt.all(symbol, limit) as PriceRecord[];
-}
-
-// ============ Notification Log ============
-
-export function logNotification(
-  alertId: string,
-  walletAddress: string,
-  telegramChatId: string | null,
-  notificationType: string,
-  status: "success" | "failed",
-  errorMessage?: string
-): void {
-  const db = getDb();
-  const stmt = db.prepare(`
-    INSERT INTO notification_log (alert_id, wallet_address, telegram_chat_id, notification_type, status, error_message)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `);
-  stmt.run(alertId, walletAddress, telegramChatId, notificationType, status, errorMessage || null);
-}
-
-// ============ Tracked Tokens ============
-
-export function addTrackedToken(coinId: string, symbol: string, name: string, addedBy: string): TrackedToken {
-  const db = getDb();
-  
-  // Check if token already exists for this user
-  const existing = db.prepare(`
-    SELECT * FROM tracked_tokens 
-    WHERE coin_id = ? AND LOWER(added_by) = LOWER(?)
-  `).get(coinId, addedBy) as TrackedToken | undefined;
-  
-  if (existing) {
-    // Update existing token to active
-    const updateStmt = db.prepare(`
-      UPDATE tracked_tokens 
-      SET is_active = 1, symbol = ?, name = ?
-      WHERE coin_id = ? AND LOWER(added_by) = LOWER(?)
-      RETURNING *
-    `);
-    return updateStmt.get(symbol.toUpperCase(), name, coinId, addedBy) as TrackedToken;
-  }
-  
-  // Insert new token
-  const insertStmt = db.prepare(`
-    INSERT INTO tracked_tokens (coin_id, symbol, name, added_by, added_at, is_active)
-    VALUES (?, ?, ?, ?, ?, 1)
-    RETURNING *
-  `);
-  return insertStmt.get(coinId, symbol.toUpperCase(), name, addedBy.toLowerCase(), Math.floor(Date.now() / 1000)) as TrackedToken;
-}
-
-export function removeTrackedToken(coinId: string, wallet: string): boolean {
-  const db = getDb();
-  const stmt = db.prepare(`UPDATE tracked_tokens SET is_active = 0 WHERE coin_id = ? AND LOWER(added_by) = LOWER(?)`);
-  return stmt.run(coinId, wallet).changes > 0;
-}
-
-// Get all tracked tokens (system + user's own if wallet provided)
-export function getTrackedTokens(wallet?: string): TrackedToken[] {
-  const db = getDb();
-  if (wallet) {
-    // Return system tokens + this user's tokens
-    const stmt = db.prepare(`
-      SELECT * FROM tracked_tokens 
-      WHERE is_active = 1 AND (added_by = 'system' OR LOWER(added_by) = LOWER(?))
-      ORDER BY added_at
-    `);
-    return stmt.all(wallet) as TrackedToken[];
-  }
-  // No wallet = ALL active tokens (for sentiment publisher)
-  const stmt = db.prepare(`SELECT * FROM tracked_tokens WHERE is_active = 1 ORDER BY added_at`);
-  return stmt.all() as TrackedToken[];
-}
-
-// Get only user's tracked tokens (not system)
-export function getUserTrackedTokens(wallet: string): TrackedToken[] {
-  const db = getDb();
-  const stmt = db.prepare(`
-    SELECT * FROM tracked_tokens 
-    WHERE is_active = 1 AND LOWER(added_by) = LOWER(?) AND added_by != 'system'
-    ORDER BY added_at
-  `);
-  return stmt.all(wallet) as TrackedToken[];
-}
-
-export function getTrackedTokenBySymbol(symbol: string): TrackedToken | null {
-  const db = getDb();
-  const stmt = db.prepare(`SELECT * FROM tracked_tokens WHERE UPPER(symbol) = UPPER(?) AND is_active = 1 LIMIT 1`);
-  return stmt.get(symbol) as TrackedToken | null;
-}
-
-export function isTokenTrackedByUser(coinId: string, wallet: string): boolean {
-  const db = getDb();
-  const stmt = db.prepare(`SELECT 1 FROM tracked_tokens WHERE coin_id = ? AND LOWER(added_by) = LOWER(?) AND is_active = 1`);
-  return !!stmt.get(coinId, wallet);
-}
-
-// ============ Sentiment Alerts ============
-
-export function createSentimentAlert(alert: SentimentAlert): SentimentAlert {
-  const db = getDb();
-  const stmt = db.prepare(`
-    INSERT INTO sentiment_alerts (id, wallet_address, coin_id, symbol, alert_type, threshold, status, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    RETURNING *
-  `);
-  return stmt.get(
-    alert.id,
-    alert.wallet_address.toLowerCase(),
-    alert.coin_id,
-    alert.symbol.toUpperCase(),
-    alert.alert_type,
-    alert.threshold,
-    alert.status,
-    alert.created_at
-  ) as SentimentAlert;
-}
-
-export function getSentimentAlertsByWallet(walletAddress: string): SentimentAlert[] {
-  const db = getDb();
-  const stmt = db.prepare(`
-    SELECT * FROM sentiment_alerts 
-    WHERE LOWER(wallet_address) = LOWER(?)
-    ORDER BY created_at DESC
-  `);
-  return stmt.all(walletAddress) as SentimentAlert[];
-}
-
-export function getActiveSentimentAlerts(): SentimentAlert[] {
-  const db = getDb();
-  const stmt = db.prepare(`SELECT * FROM sentiment_alerts WHERE status = 'ACTIVE'`);
-  return stmt.all() as SentimentAlert[];
-}
-
-export function getActiveSentimentAlertsByCoin(coinId: string): SentimentAlert[] {
-  const db = getDb();
-  const stmt = db.prepare(`SELECT * FROM sentiment_alerts WHERE status = 'ACTIVE' AND coin_id = ?`);
-  return stmt.all(coinId) as SentimentAlert[];
-}
-
-export function triggerSentimentAlert(alertId: string): SentimentAlert | null {
-  const db = getDb();
-  const stmt = db.prepare(`
-    UPDATE sentiment_alerts 
-    SET status = 'TRIGGERED', triggered_at = strftime('%s', 'now')
-    WHERE id = ? AND status = 'ACTIVE'
-    RETURNING *
-  `);
-  return stmt.get(alertId) as SentimentAlert | null;
-}
-
-export function deleteSentimentAlert(alertId: string): boolean {
-  const db = getDb();
-  const stmt = db.prepare(`DELETE FROM sentiment_alerts WHERE id = ?`);
-  return stmt.run(alertId).changes > 0;
-}
-
-export function markSentimentAlertNotified(alertId: string): boolean {
-  const db = getDb();
-  const stmt = db.prepare(`UPDATE sentiment_alerts SET notified_at = strftime('%s', 'now') WHERE id = ?`);
-  return stmt.run(alertId).changes > 0;
-}
-
-// ============ Sentiment Cache ============
-
-export interface FearGreedCache {
+// Legacy type aliases for backward compatibility
+export type FearGreedCacheData = {
   score: number;
   zone: string;
   source: string;
   timestamp: number;
   next_update: number | null;
-}
+};
 
-export interface TokenSentimentCache {
+export type TokenSentimentCacheData = {
   symbol: string;
   up_percent: number;
   down_percent: number;
@@ -458,9 +56,9 @@ export interface TokenSentimentCache {
   sample_size: number;
   source: string;
   timestamp: number;
-}
+};
 
-export interface NewsCache {
+export type NewsCacheData = {
   news_id: string;
   symbol: string;
   title: string;
@@ -472,88 +70,679 @@ export interface NewsCache {
   votes_neg: number;
   votes_imp: number;
   timestamp: number;
+};
+
+
+// Singleton instances
+let sqlite: Database.Database | null = null;
+let db: ReturnType<typeof drizzle> | null = null;
+
+export function getDb() {
+  if (db) return db;
+
+  const dbPath = process.env.DATABASE_PATH || "./data/alerts.db";
+  const dbDir = dirname(dbPath);
+
+  if (!existsSync(dbDir)) {
+    mkdirSync(dbDir, { recursive: true });
+  }
+
+  sqlite = new Database(dbPath);
+  sqlite.pragma("journal_mode = WAL");
+  sqlite.pragma("synchronous = NORMAL");
+
+  db = drizzle(sqlite, { schema });
+  console.log(`[DB] Connected to ${dbPath} (Drizzle ORM)`);
+  return db;
 }
 
-export function upsertFearGreed(data: FearGreedCache): void {
+export function getSqlite(): Database.Database {
+  if (!sqlite) getDb();
+  return sqlite!;
+}
+
+export function closeDb() {
+  if (sqlite) {
+    sqlite.close();
+    sqlite = null;
+    db = null;
+  }
+}
+
+// ============ Telegram Links ============
+
+export function getTelegramLink(walletAddress: string) {
+  const result = getDb()
+    .select()
+    .from(telegramLinks)
+    .where(eq(sql`LOWER(${telegramLinks.walletAddress})`, walletAddress.toLowerCase()))
+    .get();
+  return result || null;
+}
+
+export function getTelegramLinkByChatId(chatId: string) {
+  const result = getDb()
+    .select()
+    .from(telegramLinks)
+    .where(eq(telegramLinks.telegramChatId, chatId))
+    .get();
+  return result || null;
+}
+
+export function upsertTelegramLink(link: {
+  wallet_address: string;
+  telegram_chat_id: string;
+  telegram_username?: string | null;
+  linked_at: number;
+  verified: number;
+}) {
   const db = getDb();
-  const stmt = db.prepare(`
-    INSERT INTO fear_greed_cache (id, score, zone, source, timestamp, next_update)
-    VALUES (1, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      score = excluded.score,
-      zone = excluded.zone,
-      source = excluded.source,
-      timestamp = excluded.timestamp,
-      next_update = excluded.next_update,
-      updated_at = strftime('%s', 'now')
-  `);
-  stmt.run(data.score, data.zone, data.source, data.timestamp, data.next_update);
+  const existing = getTelegramLink(link.wallet_address);
+  
+  if (existing) {
+    return db
+      .update(telegramLinks)
+      .set({
+        telegramChatId: link.telegram_chat_id,
+        telegramUsername: link.telegram_username,
+        linkedAt: link.linked_at,
+        verified: link.verified,
+        updatedAt: Math.floor(Date.now() / 1000),
+      })
+      .where(eq(telegramLinks.id, existing.id))
+      .returning()
+      .get()!;
+  }
+  
+  return db
+    .insert(telegramLinks)
+    .values({
+      walletAddress: link.wallet_address.toLowerCase(),
+      telegramChatId: link.telegram_chat_id,
+      telegramUsername: link.telegram_username,
+      linkedAt: link.linked_at,
+      verified: link.verified,
+    })
+    .returning()
+    .get()!;
 }
 
-export function getFearGreed(): FearGreedCache | null {
+export function verifyTelegramLink(walletAddress: string): boolean {
+  const result = getDb()
+    .update(telegramLinks)
+    .set({ verified: 1, updatedAt: Math.floor(Date.now() / 1000) })
+    .where(eq(sql`LOWER(${telegramLinks.walletAddress})`, walletAddress.toLowerCase()))
+    .run();
+  return result.changes > 0;
+}
+
+export function deleteTelegramLink(walletAddress: string): boolean {
+  const result = getDb()
+    .delete(telegramLinks)
+    .where(eq(sql`LOWER(${telegramLinks.walletAddress})`, walletAddress.toLowerCase()))
+    .run();
+  return result.changes > 0;
+}
+
+
+// ============ Off-chain Alerts ============
+
+export function createOffchainAlert(alert: {
+  id: string;
+  wallet_address: string;
+  asset: string;
+  condition: "ABOVE" | "BELOW";
+  threshold_price: string;
+  status: "ACTIVE" | "TRIGGERED" | "DISABLED";
+  created_at: number;
+}) {
+  return getDb()
+    .insert(offchainAlerts)
+    .values({
+      id: alert.id,
+      walletAddress: alert.wallet_address.toLowerCase(),
+      asset: alert.asset.toUpperCase(),
+      condition: alert.condition,
+      thresholdPrice: alert.threshold_price,
+      status: alert.status,
+      createdAt: alert.created_at,
+    })
+    .returning()
+    .get()!;
+}
+
+export function getActiveAlertsByAsset(asset: string) {
+  return getDb()
+    .select()
+    .from(offchainAlerts)
+    .where(and(
+      eq(offchainAlerts.status, "ACTIVE"),
+      eq(sql`UPPER(${offchainAlerts.asset})`, asset.toUpperCase())
+    ))
+    .all();
+}
+
+export function getActiveAlerts() {
+  return getDb()
+    .select()
+    .from(offchainAlerts)
+    .where(eq(offchainAlerts.status, "ACTIVE"))
+    .orderBy(desc(offchainAlerts.createdAt))
+    .all();
+}
+
+export function getAlertsByWallet(walletAddress: string) {
+  return getDb()
+    .select()
+    .from(offchainAlerts)
+    .where(eq(sql`LOWER(${offchainAlerts.walletAddress})`, walletAddress.toLowerCase()))
+    .orderBy(desc(offchainAlerts.createdAt))
+    .all();
+}
+
+export function triggerAlert(alertId: string) {
+  const result = getDb()
+    .update(offchainAlerts)
+    .set({ 
+      status: "TRIGGERED", 
+      triggeredAt: Math.floor(Date.now() / 1000) 
+    })
+    .where(and(
+      eq(offchainAlerts.id, alertId),
+      eq(offchainAlerts.status, "ACTIVE")
+    ))
+    .returning()
+    .get();
+  return result || null;
+}
+
+export function markAlertNotified(alertId: string): boolean {
+  const result = getDb()
+    .update(offchainAlerts)
+    .set({ notifiedAt: Math.floor(Date.now() / 1000) })
+    .where(eq(offchainAlerts.id, alertId))
+    .run();
+  return result.changes > 0;
+}
+
+export function deleteAlert(alertId: string): boolean {
+  const result = getDb()
+    .delete(offchainAlerts)
+    .where(eq(offchainAlerts.id, alertId))
+    .run();
+  return result.changes > 0;
+}
+
+// ============ Price History ============
+
+export function insertPriceRecord(record: {
+  symbol: string;
+  price: string;
+  decimals: number;
+  source: string;
+  timestamp: number;
+}) {
+  getDb()
+    .insert(priceHistory)
+    .values(record)
+    .run();
+}
+
+export function getLatestPrice(symbol: string) {
+  const result = getDb()
+    .select()
+    .from(priceHistory)
+    .where(eq(sql`UPPER(${priceHistory.symbol})`, symbol.toUpperCase()))
+    .orderBy(desc(priceHistory.timestamp))
+    .limit(1)
+    .get();
+  return result || null;
+}
+
+export function getPriceHistory(symbol: string, limit = 100) {
+  return getDb()
+    .select()
+    .from(priceHistory)
+    .where(eq(sql`UPPER(${priceHistory.symbol})`, symbol.toUpperCase()))
+    .orderBy(desc(priceHistory.timestamp))
+    .limit(limit)
+    .all();
+}
+
+// ============ Notification Log ============
+
+export function logNotification(
+  alertId: string,
+  walletAddress: string,
+  telegramChatId: string | null,
+  notificationType: string,
+  status: "success" | "failed",
+  errorMessage?: string
+) {
+  getDb()
+    .insert(notificationLog)
+    .values({
+      alertId,
+      walletAddress,
+      telegramChatId,
+      notificationType,
+      status,
+      errorMessage: errorMessage || null,
+    })
+    .run();
+}
+
+
+// ============ Tracked Tokens ============
+
+export function addTrackedToken(coinId: string, symbol: string, name: string, addedBy: string) {
   const db = getDb();
-  const stmt = db.prepare(`SELECT score, zone, source, timestamp, next_update FROM fear_greed_cache WHERE id = 1`);
-  return stmt.get() as FearGreedCache | null;
+  
+  // Check if exists
+  const existing = db
+    .select()
+    .from(trackedTokens)
+    .where(and(
+      eq(trackedTokens.coinId, coinId),
+      eq(sql`LOWER(${trackedTokens.addedBy})`, addedBy.toLowerCase())
+    ))
+    .get();
+  
+  if (existing) {
+    return db
+      .update(trackedTokens)
+      .set({ isActive: 1, symbol: symbol.toUpperCase(), name })
+      .where(eq(trackedTokens.id, existing.id))
+      .returning()
+      .get()!;
+  }
+  
+  return db
+    .insert(trackedTokens)
+    .values({
+      coinId,
+      symbol: symbol.toUpperCase(),
+      name,
+      addedBy: addedBy.toLowerCase(),
+      addedAt: Math.floor(Date.now() / 1000),
+      isActive: 1,
+    })
+    .returning()
+    .get()!;
 }
 
-export function upsertTokenSentiment(data: TokenSentimentCache): void {
+export function removeTrackedToken(coinId: string, wallet: string): boolean {
+  const result = getDb()
+    .update(trackedTokens)
+    .set({ isActive: 0 })
+    .where(and(
+      eq(trackedTokens.coinId, coinId),
+      eq(sql`LOWER(${trackedTokens.addedBy})`, wallet.toLowerCase())
+    ))
+    .run();
+  return result.changes > 0;
+}
+
+export function getTrackedTokens(wallet?: string) {
   const db = getDb();
-  const stmt = db.prepare(`
-    INSERT INTO token_sentiment_cache (symbol, up_percent, down_percent, net_score, sample_size, source, timestamp)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(symbol) DO UPDATE SET
-      up_percent = excluded.up_percent,
-      down_percent = excluded.down_percent,
-      net_score = excluded.net_score,
-      sample_size = excluded.sample_size,
-      source = excluded.source,
-      timestamp = excluded.timestamp,
-      updated_at = strftime('%s', 'now')
-  `);
-  stmt.run(data.symbol.toUpperCase(), data.up_percent, data.down_percent, data.net_score, data.sample_size, data.source, data.timestamp);
+  if (wallet) {
+    return db
+      .select()
+      .from(trackedTokens)
+      .where(and(
+        eq(trackedTokens.isActive, 1),
+        or(
+          eq(trackedTokens.addedBy, "system"),
+          eq(sql`LOWER(${trackedTokens.addedBy})`, wallet.toLowerCase())
+        )
+      ))
+      .orderBy(trackedTokens.addedAt)
+      .all();
+  }
+  return db
+    .select()
+    .from(trackedTokens)
+    .where(eq(trackedTokens.isActive, 1))
+    .orderBy(trackedTokens.addedAt)
+    .all();
 }
 
-export function getTokenSentiment(symbol: string): TokenSentimentCache | null {
+export function getUserTrackedTokens(wallet: string) {
+  return getDb()
+    .select()
+    .from(trackedTokens)
+    .where(and(
+      eq(trackedTokens.isActive, 1),
+      eq(sql`LOWER(${trackedTokens.addedBy})`, wallet.toLowerCase()),
+      sql`${trackedTokens.addedBy} != 'system'`
+    ))
+    .orderBy(trackedTokens.addedAt)
+    .all();
+}
+
+export function getTrackedTokenBySymbol(symbol: string) {
+  const result = getDb()
+    .select()
+    .from(trackedTokens)
+    .where(and(
+      eq(sql`UPPER(${trackedTokens.symbol})`, symbol.toUpperCase()),
+      eq(trackedTokens.isActive, 1)
+    ))
+    .limit(1)
+    .get();
+  return result || null;
+}
+
+export function isTokenTrackedByUser(coinId: string, wallet: string): boolean {
+  const result = getDb()
+    .select({ id: trackedTokens.id })
+    .from(trackedTokens)
+    .where(and(
+      eq(trackedTokens.coinId, coinId),
+      eq(sql`LOWER(${trackedTokens.addedBy})`, wallet.toLowerCase()),
+      eq(trackedTokens.isActive, 1)
+    ))
+    .get();
+  return !!result;
+}
+
+
+// ============ Sentiment Alerts ============
+
+export function createSentimentAlert(alert: {
+  id: string;
+  wallet_address: string;
+  coin_id: string;
+  symbol: string;
+  alert_type: "SENTIMENT_UP" | "SENTIMENT_DOWN" | "FEAR_GREED";
+  threshold: number;
+  status: "ACTIVE" | "TRIGGERED" | "DISABLED";
+  created_at: number;
+}) {
+  return getDb()
+    .insert(sentimentAlerts)
+    .values({
+      id: alert.id,
+      walletAddress: alert.wallet_address.toLowerCase(),
+      coinId: alert.coin_id,
+      symbol: alert.symbol.toUpperCase(),
+      alertType: alert.alert_type,
+      threshold: alert.threshold,
+      status: alert.status,
+      createdAt: alert.created_at,
+    })
+    .returning()
+    .get()!;
+}
+
+export function getSentimentAlertsByWallet(walletAddress: string) {
+  return getDb()
+    .select()
+    .from(sentimentAlerts)
+    .where(eq(sql`LOWER(${sentimentAlerts.walletAddress})`, walletAddress.toLowerCase()))
+    .orderBy(desc(sentimentAlerts.createdAt))
+    .all();
+}
+
+export function getActiveSentimentAlerts() {
+  return getDb()
+    .select()
+    .from(sentimentAlerts)
+    .where(eq(sentimentAlerts.status, "ACTIVE"))
+    .all();
+}
+
+export function getActiveSentimentAlertsByCoin(coinId: string) {
+  return getDb()
+    .select()
+    .from(sentimentAlerts)
+    .where(and(
+      eq(sentimentAlerts.status, "ACTIVE"),
+      eq(sentimentAlerts.coinId, coinId)
+    ))
+    .all();
+}
+
+export function triggerSentimentAlert(alertId: string) {
+  const result = getDb()
+    .update(sentimentAlerts)
+    .set({ 
+      status: "TRIGGERED", 
+      triggeredAt: Math.floor(Date.now() / 1000) 
+    })
+    .where(and(
+      eq(sentimentAlerts.id, alertId),
+      eq(sentimentAlerts.status, "ACTIVE")
+    ))
+    .returning()
+    .get();
+  return result || null;
+}
+
+export function deleteSentimentAlert(alertId: string): boolean {
+  const result = getDb()
+    .delete(sentimentAlerts)
+    .where(eq(sentimentAlerts.id, alertId))
+    .run();
+  return result.changes > 0;
+}
+
+export function markSentimentAlertNotified(alertId: string): boolean {
+  const result = getDb()
+    .update(sentimentAlerts)
+    .set({ notifiedAt: Math.floor(Date.now() / 1000) })
+    .where(eq(sentimentAlerts.id, alertId))
+    .run();
+  return result.changes > 0;
+}
+
+
+// ============ Sentiment Cache ============
+
+export function upsertFearGreed(data: FearGreedCacheData) {
   const db = getDb();
-  const stmt = db.prepare(`SELECT * FROM token_sentiment_cache WHERE UPPER(symbol) = UPPER(?)`);
-  return stmt.get(symbol) as TokenSentimentCache | null;
+  const existing = db.select().from(fearGreedCache).where(eq(fearGreedCache.id, 1)).get();
+  
+  if (existing) {
+    db.update(fearGreedCache)
+      .set({
+        score: data.score,
+        zone: data.zone,
+        source: data.source,
+        timestamp: data.timestamp,
+        nextUpdate: data.next_update,
+        updatedAt: Math.floor(Date.now() / 1000),
+      })
+      .where(eq(fearGreedCache.id, 1))
+      .run();
+  } else {
+    db.insert(fearGreedCache)
+      .values({
+        id: 1,
+        score: data.score,
+        zone: data.zone,
+        source: data.source,
+        timestamp: data.timestamp,
+        nextUpdate: data.next_update,
+      })
+      .run();
+  }
 }
 
-export function getAllTokenSentiments(): TokenSentimentCache[] {
+export function getFearGreed(): FearGreedCacheData | null {
+  const result = getDb()
+    .select({
+      score: fearGreedCache.score,
+      zone: fearGreedCache.zone,
+      source: fearGreedCache.source,
+      timestamp: fearGreedCache.timestamp,
+      next_update: fearGreedCache.nextUpdate,
+    })
+    .from(fearGreedCache)
+    .where(eq(fearGreedCache.id, 1))
+    .get();
+  return result || null;
+}
+
+export function upsertTokenSentiment(data: TokenSentimentCacheData) {
   const db = getDb();
-  const stmt = db.prepare(`SELECT * FROM token_sentiment_cache ORDER BY symbol`);
-  return stmt.all() as TokenSentimentCache[];
+  const symbol = data.symbol.toUpperCase();
+  const existing = db.select().from(tokenSentimentCache).where(eq(tokenSentimentCache.symbol, symbol)).get();
+  
+  if (existing) {
+    db.update(tokenSentimentCache)
+      .set({
+        upPercent: data.up_percent,
+        downPercent: data.down_percent,
+        netScore: data.net_score,
+        sampleSize: data.sample_size,
+        source: data.source,
+        timestamp: data.timestamp,
+        updatedAt: Math.floor(Date.now() / 1000),
+      })
+      .where(eq(tokenSentimentCache.symbol, symbol))
+      .run();
+  } else {
+    db.insert(tokenSentimentCache)
+      .values({
+        symbol,
+        upPercent: data.up_percent,
+        downPercent: data.down_percent,
+        netScore: data.net_score,
+        sampleSize: data.sample_size,
+        source: data.source,
+        timestamp: data.timestamp,
+      })
+      .run();
+  }
 }
 
-export function upsertNews(data: NewsCache): void {
+export function getTokenSentiment(symbol: string): TokenSentimentCacheData | null {
+  const result = getDb()
+    .select({
+      symbol: tokenSentimentCache.symbol,
+      up_percent: tokenSentimentCache.upPercent,
+      down_percent: tokenSentimentCache.downPercent,
+      net_score: tokenSentimentCache.netScore,
+      sample_size: tokenSentimentCache.sampleSize,
+      source: tokenSentimentCache.source,
+      timestamp: tokenSentimentCache.timestamp,
+    })
+    .from(tokenSentimentCache)
+    .where(eq(sql`UPPER(${tokenSentimentCache.symbol})`, symbol.toUpperCase()))
+    .get();
+  return result || null;
+}
+
+export function getAllTokenSentiments(): TokenSentimentCacheData[] {
+  return getDb()
+    .select({
+      symbol: tokenSentimentCache.symbol,
+      up_percent: tokenSentimentCache.upPercent,
+      down_percent: tokenSentimentCache.downPercent,
+      net_score: tokenSentimentCache.netScore,
+      sample_size: tokenSentimentCache.sampleSize,
+      source: tokenSentimentCache.source,
+      timestamp: tokenSentimentCache.timestamp,
+    })
+    .from(tokenSentimentCache)
+    .orderBy(tokenSentimentCache.symbol)
+    .all();
+}
+
+
+// ============ News Cache ============
+
+export function upsertNews(data: NewsCacheData) {
   const db = getDb();
-  const stmt = db.prepare(`
-    INSERT INTO news_cache (news_id, symbol, title, url, source, sentiment, impact, votes_pos, votes_neg, votes_imp, timestamp)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(news_id) DO UPDATE SET
-      votes_pos = excluded.votes_pos,
-      votes_neg = excluded.votes_neg,
-      votes_imp = excluded.votes_imp
-  `);
-  stmt.run(data.news_id, data.symbol, data.title, data.url, data.source, data.sentiment, data.impact, data.votes_pos, data.votes_neg, data.votes_imp, data.timestamp);
+  const existing = db.select().from(newsCache).where(eq(newsCache.newsId, data.news_id)).get();
+  
+  if (existing) {
+    db.update(newsCache)
+      .set({
+        votesPos: data.votes_pos,
+        votesNeg: data.votes_neg,
+        votesImp: data.votes_imp,
+      })
+      .where(eq(newsCache.newsId, data.news_id))
+      .run();
+  } else {
+    db.insert(newsCache)
+      .values({
+        newsId: data.news_id,
+        symbol: data.symbol,
+        title: data.title,
+        url: data.url,
+        source: data.source,
+        sentiment: data.sentiment,
+        impact: data.impact,
+        votesPos: data.votes_pos,
+        votesNeg: data.votes_neg,
+        votesImp: data.votes_imp,
+        timestamp: data.timestamp,
+      })
+      .run();
+  }
 }
 
-export function getRecentNews(limit: number = 20): NewsCache[] {
-  const db = getDb();
-  const stmt = db.prepare(`SELECT * FROM news_cache ORDER BY timestamp DESC LIMIT ?`);
-  return stmt.all(limit) as NewsCache[];
+export function getRecentNews(limit = 20): NewsCacheData[] {
+  return getDb()
+    .select({
+      news_id: newsCache.newsId,
+      symbol: newsCache.symbol,
+      title: newsCache.title,
+      url: newsCache.url,
+      source: newsCache.source,
+      sentiment: newsCache.sentiment,
+      impact: newsCache.impact,
+      votes_pos: newsCache.votesPos,
+      votes_neg: newsCache.votesNeg,
+      votes_imp: newsCache.votesImp,
+      timestamp: newsCache.timestamp,
+    })
+    .from(newsCache)
+    .orderBy(desc(newsCache.timestamp))
+    .limit(limit)
+    .all() as NewsCacheData[];
 }
 
-export function getNewsBySymbol(symbol: string, limit: number = 10): NewsCache[] {
-  const db = getDb();
-  const stmt = db.prepare(`SELECT * FROM news_cache WHERE UPPER(symbol) = UPPER(?) ORDER BY timestamp DESC LIMIT ?`);
-  return stmt.all(symbol, limit) as NewsCache[];
+export function getNewsBySymbol(symbol: string, limit = 10): NewsCacheData[] {
+  return getDb()
+    .select({
+      news_id: newsCache.newsId,
+      symbol: newsCache.symbol,
+      title: newsCache.title,
+      url: newsCache.url,
+      source: newsCache.source,
+      sentiment: newsCache.sentiment,
+      impact: newsCache.impact,
+      votes_pos: newsCache.votesPos,
+      votes_neg: newsCache.votesNeg,
+      votes_imp: newsCache.votesImp,
+      timestamp: newsCache.timestamp,
+    })
+    .from(newsCache)
+    .where(eq(sql`UPPER(${newsCache.symbol})`, symbol.toUpperCase()))
+    .orderBy(desc(newsCache.timestamp))
+    .limit(limit)
+    .all() as NewsCacheData[];
 }
 
-// Clean old news (keep last 7 days)
 export function cleanOldNews(): number {
-  const db = getDb();
-  const weekAgo = Math.floor(Date.now() / 1000) - (7 * 24 * 60 * 60);
-  const stmt = db.prepare(`DELETE FROM news_cache WHERE timestamp < ?`);
-  return stmt.run(weekAgo).changes;
+  const weekAgo = Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60;
+  const result = getDb()
+    .delete(newsCache)
+    .where(sql`${newsCache.timestamp} < ${weekAgo}`)
+    .run();
+  return result.changes;
+}
+
+// ============ Migration Helper ============
+
+export function runMigrations() {
+  const sqlite = getSqlite();
+  
+  // Create tables if they don't exist (for fresh installs)
+  // Drizzle will handle this via push/migrate commands
+  console.log("[DB] Migrations handled by Drizzle");
 }

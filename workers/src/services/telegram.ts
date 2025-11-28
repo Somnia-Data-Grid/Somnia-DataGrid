@@ -93,19 +93,19 @@ export async function sendAlertNotification(params: AlertNotificationParams): Pr
 <i>Wallet: ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}</i>
 `.trim();
 
-  const success = await sendTelegramMessage(link.telegram_chat_id, message);
+  const success = await sendTelegramMessage(link.telegramChatId, message);
   
   logNotification(
     alertId,
     walletAddress,
-    link.telegram_chat_id,
+    link.telegramChatId,
     "alert",
     success ? "success" : "failed",
     success ? undefined : "Failed to send message"
   );
 
   if (success) {
-    console.log(`[Telegram] ✅ Alert notification sent for ${asset} to ${link.telegram_username || link.telegram_chat_id}`);
+    console.log(`[Telegram] ✅ Alert notification sent for ${asset} to ${link.telegramUsername || link.telegramChatId}`);
   }
 
   return success;
@@ -212,19 +212,19 @@ ${emoji} <b>${title}</b>
 <i>Wallet: ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}</i>
 `.trim();
 
-  const success = await sendTelegramMessage(link.telegram_chat_id, message);
+  const success = await sendTelegramMessage(link.telegramChatId, message);
   
   logNotification(
     alertId,
     walletAddress,
-    link.telegram_chat_id,
+    link.telegramChatId,
     "sentiment_alert",
     success ? "success" : "failed",
     success ? undefined : "Failed to send message"
   );
 
   if (success) {
-    console.log(`[Telegram] ✅ Sentiment alert sent for ${symbol} to ${link.telegram_username || link.telegram_chat_id}`);
+    console.log(`[Telegram] ✅ Sentiment alert sent for ${symbol} to ${link.telegramUsername || link.telegramChatId}`);
   }
 
   return success;

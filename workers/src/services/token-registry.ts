@@ -191,9 +191,9 @@ export async function getAllTrackedSymbols(): Promise<Array<{ symbol: string; co
   // Add user-selected tokens
   const userTokens = getTrackedTokens();
   for (const token of userTokens) {
-    if (!seen.has(token.coin_id)) {
-      result.push({ symbol: token.symbol, coinId: token.coin_id });
-      seen.add(token.coin_id);
+    if (!seen.has(token.coinId)) {
+      result.push({ symbol: token.symbol, coinId: token.coinId });
+      seen.add(token.coinId);
     }
   }
 

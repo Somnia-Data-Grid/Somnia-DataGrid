@@ -5,13 +5,13 @@
  */
 
 import "dotenv/config";
-import { getDb, closeDb } from "./client.js";
+import { getSqlite, closeDb } from "./client.js";
 
 async function migrate() {
   console.log("🗄️  Running database migrations...");
   
   try {
-    const db = getDb();
+    const db = getSqlite();
     
     // Schema is auto-applied in getDb(), but we can add version tracking here
     const tables = db.prepare(`

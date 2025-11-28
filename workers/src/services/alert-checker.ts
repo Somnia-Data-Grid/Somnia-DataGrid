@@ -106,10 +106,10 @@ async function emitAlertTriggeredEvent(
 
   const encoded = encoder.encodeData([
     { name: "alertId", value: alert.id as `0x${string}`, type: "bytes32" },
-    { name: "userAddress", value: alert.wallet_address as `0x${string}`, type: "address" },
+    { name: "userAddress", value: alert.walletAddress as `0x${string}`, type: "address" },
     { name: "asset", value: alert.asset, type: "string" },
     { name: "condition", value: alert.condition, type: "string" },
-    { name: "thresholdPrice", value: alert.threshold_price, type: "uint256" },
+    { name: "thresholdPrice", value: alert.thresholdPrice, type: "uint256" },
     { name: "currentPrice", value: currentPrice.toString(), type: "uint256" },
     { name: "triggeredAt", value: now.toString(), type: "uint64" },
   ]);
@@ -152,7 +152,7 @@ export async function checkAndTriggerAlerts(
     // Skip if already triggered in this session
     if (triggeredAlertIds.has(alert.id)) continue;
 
-    const thresholdPrice = BigInt(alert.threshold_price);
+    const thresholdPrice = BigInt(alert.thresholdPrice);
     const shouldTrigger =
       (alert.condition === "ABOVE" && currentPrice >= thresholdPrice) ||
       (alert.condition === "BELOW" && currentPrice <= thresholdPrice);
@@ -182,10 +182,10 @@ export async function checkAndTriggerAlerts(
       // Send Telegram notification (non-blocking)
       sendAlertNotification({
         alertId: alert.id,
-        walletAddress: alert.wallet_address,
+        walletAddress: alert.walletAddress,
         asset: alert.asset,
         condition: alert.condition,
-        thresholdPrice: alert.threshold_price,
+        thresholdPrice: alert.thresholdPrice,
         currentPrice: currentPrice.toString(),
         decimals: PRICE_DECIMALS,
       }).then(sent => {
@@ -197,7 +197,7 @@ export async function checkAndTriggerAlerts(
         console.error(`[AlertChecker] Failed to send notification:`, error);
         logNotification(
           alert.id,
-          alert.wallet_address,
+          alert.walletAddress,
           null,
           "telegram",
           "failed",

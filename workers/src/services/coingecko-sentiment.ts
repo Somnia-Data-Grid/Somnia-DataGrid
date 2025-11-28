@@ -91,8 +91,8 @@ class CoinGeckoSentimentClient {
       // Check tracked tokens for user-added tokens
       try {
         const tracked = getTrackedTokenBySymbol(symbol);
-        if (tracked?.coin_id) {
-          coinId = tracked.coin_id;
+        if (tracked?.coinId) {
+          coinId = tracked.coinId;
           console.log(`[CGSentiment] Found ${symbol} in tracked tokens: ${coinId}`);
         }
       } catch {

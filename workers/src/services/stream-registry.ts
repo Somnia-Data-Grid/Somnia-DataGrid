@@ -16,7 +16,7 @@
  * 3. Subscribe to streams via WebSocket
  */
 
-import { getDb } from "../db/client.js";
+import { getSqlite } from "../db/client.js";
 
 // Stream types
 export type StreamType = "PRICE" | "SENTIMENT" | "FEAR_GREED" | "NEWS" | "NEWS_AGG";
@@ -104,7 +104,7 @@ CREATE INDEX IF NOT EXISTS idx_stream_registry_active ON stream_registry(is_acti
 
 // Initialize the registry table
 export function initStreamRegistry(): void {
-  const db = getDb();
+  const db = getSqlite();
   db.exec(INIT_SQL);
   
   // Seed default tokens
@@ -124,7 +124,7 @@ export function initStreamRegistry(): void {
 
 // Get all active streams
 export function getActiveStreams(type?: StreamType): StreamInfo[] {
-  const db = getDb();
+  const db = getSqlite();
   
   let sql = `SELECT * FROM stream_registry WHERE is_active = 1`;
   const params: any[] = [];
@@ -156,7 +156,7 @@ export function getActiveStreams(type?: StreamType): StreamInfo[] {
 // Get symbols for a stream type
 export function getActiveSymbols(type: StreamType): string[] {
   try {
-    const db = getDb();
+    const db = getSqlite();
     const rows = db.prepare(`SELECT symbol FROM stream_registry WHERE type = ? AND is_active = 1`).all(type) as any[];
     return rows.map(r => r.symbol);
   } catch {
@@ -173,7 +173,7 @@ export function getActiveSymbols(type: StreamType): string[] {
 
 // Check if a token is supported
 export function isTokenSupported(symbol: string, type: StreamType = "PRICE"): boolean {
-  const db = getDb();
+  const db = getSqlite();
   const row = db.prepare(`SELECT 1 FROM stream_registry WHERE symbol = ? AND type = ? AND is_active = 1`).get(symbol.toUpperCase(), type);
   return !!row;
 }
@@ -188,7 +188,7 @@ export interface TokenRequest {
 }
 
 export function requestToken(request: TokenRequest, type: StreamType = "PRICE"): { success: boolean; message: string } {
-  const db = getDb();
+  const db = getSqlite();
   const symbol = request.symbol.toUpperCase();
   
   // Check if already exists
@@ -223,21 +223,21 @@ export function requestToken(request: TokenRequest, type: StreamType = "PRICE"):
 
 // Disable a token stream
 export function disableToken(symbol: string, type: StreamType = "PRICE"): boolean {
-  const db = getDb();
+  const db = getSqlite();
   const result = db.prepare(`UPDATE stream_registry SET is_active = 0 WHERE symbol = ? AND type = ?`).run(symbol.toUpperCase(), type);
   return result.changes > 0;
 }
 
 // Get CoinGecko ID for a symbol
 export function getCoingeckoId(symbol: string): string | null {
-  const db = getDb();
+  const db = getSqlite();
   const row = db.prepare(`SELECT coingecko_id FROM stream_registry WHERE symbol = ? AND coingecko_id IS NOT NULL`).get(symbol.toUpperCase()) as any;
   return row?.coingecko_id || null;
 }
 
 // Get DIA key for a symbol
 export function getDiaKey(symbol: string): string | null {
-  const db = getDb();
+  const db = getSqlite();
   const row = db.prepare(`SELECT dia_key FROM stream_registry WHERE symbol = ? AND dia_key IS NOT NULL`).get(symbol.toUpperCase()) as any;
   return row?.dia_key || null;
 }
@@ -245,7 +245,7 @@ export function getDiaKey(symbol: string): string | null {
 // Get all CoinGecko IDs as a map (for batch fetching)
 export function getAllCoingeckoIds(): Record<string, string> {
   try {
-    const db = getDb();
+    const db = getSqlite();
     const rows = db.prepare(`SELECT symbol, coingecko_id FROM stream_registry WHERE coingecko_id IS NOT NULL AND is_active = 1`).all() as any[];
     const result: Record<string, string> = {};
     for (const row of rows) {
