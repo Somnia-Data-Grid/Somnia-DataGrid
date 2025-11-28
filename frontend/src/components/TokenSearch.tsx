@@ -64,12 +64,23 @@ export function TokenSearch({ onTokenSelect, walletAddress, showTrackedTokens = 
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const [addingToken, setAddingToken] = useState<string | null>(null);
+  const [addedMessage, setAddedMessage] = useState<string | null>(null);
+
   const handleSelect = async (token: TokenSearchResult) => {
+    setAddingToken(token.id);
     const success = await trackToken(token, walletAddress);
+    setAddingToken(null);
+    
     if (success) {
+      setAddedMessage(`✓ ${token.symbol.toUpperCase()} added to tracking`);
+      setTimeout(() => setAddedMessage(null), 3000);
       setQuery('');
       setShowDropdown(false);
       onTokenSelect?.(token);
+    } else {
+      setAddedMessage(`Failed to add ${token.symbol}`);
+      setTimeout(() => setAddedMessage(null), 3000);
     }
   };
 
@@ -101,6 +112,13 @@ export function TokenSearch({ onTokenSelect, walletAddress, showTrackedTokens = 
           </div>
         )}
 
+        {/* Success message */}
+        {addedMessage && (
+          <div className="mt-2 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-700">
+            {addedMessage}
+          </div>
+        )}
+
         {/* Search Results Dropdown */}
         {showDropdown && searchResults.length > 0 && (
           <div
@@ -124,8 +142,10 @@ export function TokenSearch({ onTokenSelect, walletAddress, showTrackedTokens = 
                     {token.name}
                   </span>
                 </div>
-                {isTracked(token.id) ? (
-                  <span className="text-xs text-emerald-600 font-medium">Tracked</span>
+                {addingToken === token.id ? (
+                  <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                ) : isTracked(token.id) ? (
+                  <span className="text-xs text-emerald-600 font-medium">✓ Tracked</span>
                 ) : (
                   <span className="text-xs text-slate-400">+ Add</span>
                 )}

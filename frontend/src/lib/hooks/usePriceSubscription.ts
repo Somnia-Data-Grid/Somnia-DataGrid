@@ -236,22 +236,34 @@ export function usePriceSubscription() {
   }, [decodeAlert, decodePrice]);
 
   useEffect(() => {
-    const pollInterval = setInterval(async () => {
+    // Initial poll immediately
+    const pollAlerts = async () => {
       try {
         const response = await fetch("/api/alerts/triggered?since=" + lastPollRef.current);
         if (!response.ok) return;
         
         const data = await response.json();
         if (data.success && data.alerts?.length) {
+          console.log("[Alerts] Polled triggered alerts:", data.alerts.length);
           data.alerts.forEach((alert: AlertNotification) => {
             addAlert(alert);
           });
-          lastPollRef.current = Date.now();
+          // Update lastPoll to latest alert timestamp to avoid duplicates
+          const latestTs = Math.max(...data.alerts.map((a: AlertNotification) => a.triggeredAt * 1000));
+          if (latestTs > lastPollRef.current) {
+            lastPollRef.current = latestTs;
+          }
         }
       } catch {
         // Polling is best-effort
       }
-    }, 10000);
+    };
+
+    // Poll immediately on mount
+    pollAlerts();
+    
+    // Then poll every 5 seconds
+    const pollInterval = setInterval(pollAlerts, 5000);
 
     return () => clearInterval(pollInterval);
   }, [addAlert]);

@@ -301,16 +301,31 @@ export function logNotification(
 
 export function addTrackedToken(coinId: string, symbol: string, name: string, addedBy: string): TrackedToken {
   const db = getDb();
-  const stmt = db.prepare(`
+  
+  // Check if token already exists for this user
+  const existing = db.prepare(`
+    SELECT * FROM tracked_tokens 
+    WHERE coin_id = ? AND LOWER(added_by) = LOWER(?)
+  `).get(coinId, addedBy) as TrackedToken | undefined;
+  
+  if (existing) {
+    // Update existing token to active
+    const updateStmt = db.prepare(`
+      UPDATE tracked_tokens 
+      SET is_active = 1, symbol = ?, name = ?
+      WHERE coin_id = ? AND LOWER(added_by) = LOWER(?)
+      RETURNING *
+    `);
+    return updateStmt.get(symbol.toUpperCase(), name, coinId, addedBy) as TrackedToken;
+  }
+  
+  // Insert new token
+  const insertStmt = db.prepare(`
     INSERT INTO tracked_tokens (coin_id, symbol, name, added_by, added_at, is_active)
     VALUES (?, ?, ?, ?, ?, 1)
-    ON CONFLICT(coin_id, added_by) DO UPDATE SET
-      is_active = 1,
-      symbol = excluded.symbol,
-      name = excluded.name
     RETURNING *
   `);
-  return stmt.get(coinId, symbol.toUpperCase(), name, addedBy.toLowerCase(), Math.floor(Date.now() / 1000)) as TrackedToken;
+  return insertStmt.get(coinId, symbol.toUpperCase(), name, addedBy.toLowerCase(), Math.floor(Date.now() / 1000)) as TrackedToken;
 }
 
 export function removeTrackedToken(coinId: string, wallet: string): boolean {

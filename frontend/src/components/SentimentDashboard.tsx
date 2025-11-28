@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSentimentSubscription } from "@/lib/hooks/useSentimentSubscription";
+import { useTokenTracking } from "@/lib/hooks/useTokenTracking";
 import { FearGreedGauge } from "./FearGreedGauge";
 import { SentimentGrid } from "./SentimentCard";
 
@@ -13,7 +14,13 @@ type Tab = 'overview' | 'tokens' | 'alerts';
 
 export function SentimentDashboard() {
   const { fearGreed, sentiments, isConnected, error } = useSentimentSubscription();
+  const { trackedTokens, fetchTrackedTokens } = useTokenTracking();
   const [activeTab, setActiveTab] = useState<Tab>('overview');
+
+  // Fetch tracked tokens on mount
+  useEffect(() => {
+    fetchTrackedTokens();
+  }, [fetchTrackedTokens]);
 
   return (
     <div className="space-y-6">
@@ -104,7 +111,7 @@ export function SentimentDashboard() {
 
             {/* Token Sentiment */}
             <div className="lg:col-span-2">
-              <SentimentGrid sentiments={sentiments} />
+              <SentimentGrid sentiments={sentiments} trackedTokens={trackedTokens} />
             </div>
           </div>
 
