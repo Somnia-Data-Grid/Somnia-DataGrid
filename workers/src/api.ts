@@ -96,6 +96,8 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     "/api/sentiment/news",
     "/api/tokens/search",
     "/api/tokens/tracked",
+    "/api/tokens/track",
+    "/api/tokens/untrack",
   ];
   const isPublicEndpoint = publicPaths.some(p => path.startsWith(p));
 
