@@ -231,6 +231,19 @@ export function getActiveAlerts() {
     .all();
 }
 
+export function getTriggeredAlertsSince(sinceTimestamp: number, limit = 20) {
+  return getDb()
+    .select()
+    .from(offchainAlerts)
+    .where(and(
+      eq(offchainAlerts.status, "TRIGGERED"),
+      sql`${offchainAlerts.triggeredAt} > ${sinceTimestamp}`
+    ))
+    .orderBy(desc(offchainAlerts.triggeredAt))
+    .limit(limit)
+    .all();
+}
+
 export function getAlertsByWallet(walletAddress: string) {
   return getDb()
     .select()

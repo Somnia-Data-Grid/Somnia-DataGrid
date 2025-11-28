@@ -15,16 +15,12 @@ interface TriggeredAlert {
 export async function GET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
-    const wallet = params.get("wallet");
     const sinceParam = params.get("since");
-    const since = sinceParam ? parseInt(sinceParam, 10) : 0;
-    const sinceTimestamp = Math.floor(since / 1000); // Convert ms to seconds
+    const since = sinceParam ? Math.floor(parseInt(sinceParam, 10) / 1000) : 0; // Convert ms to seconds
 
-    // Fetch alerts from Workers API
-    const url = new URL(`${WORKERS_API_URL}/api/alerts`);
-    if (wallet) {
-      url.searchParams.set("wallet", wallet);
-    }
+    // Fetch recently triggered alerts from Workers API
+    const url = new URL(`${WORKERS_API_URL}/api/alerts/triggered`);
+    url.searchParams.set("since", String(since));
 
     let data: { success: boolean; alerts?: any[]; error?: string };
     
@@ -33,40 +29,28 @@ export async function GET(request: NextRequest) {
         headers: {
           ...(WORKERS_API_SECRET && { Authorization: `Bearer ${WORKERS_API_SECRET}` }),
         },
-        // Short timeout for polling endpoint
         signal: AbortSignal.timeout(5000),
       });
 
       data = await response.json();
 
       if (!response.ok || !data.success) {
-        // Workers API error - return empty result instead of 500
         return NextResponse.json({ success: true, alerts: [] });
       }
     } catch {
-      // Workers API unreachable - return empty result
       return NextResponse.json({ success: true, alerts: [] });
     }
 
-    // Filter to only triggered alerts
+    // Map to frontend format
     const triggeredAlerts: TriggeredAlert[] = (data.alerts || [])
-      .filter((alert: any) => alert.status === "TRIGGERED")
-      .filter((alert: any) => {
-        // Only return alerts triggered after the 'since' timestamp
-        if (sinceTimestamp > 0 && alert.triggered_at <= sinceTimestamp) {
-          return false;
-        }
-        return true;
-      })
       .map((alert: any) => ({
         alertId: alert.id,
         asset: alert.asset,
         condition: alert.condition,
         thresholdPrice: alert.threshold_price,
-        currentPrice: alert.threshold_price, // Fallback - actual price not stored in DB
+        currentPrice: alert.threshold_price,
         triggeredAt: alert.triggered_at,
       }))
-      .sort((a: TriggeredAlert, b: TriggeredAlert) => b.triggeredAt - a.triggeredAt)
       .slice(0, 10);
 
     return NextResponse.json({
@@ -74,7 +58,6 @@ export async function GET(request: NextRequest) {
       alerts: triggeredAlerts,
     });
   } catch {
-    // Return empty result on any error - this is a polling endpoint
     return NextResponse.json({ success: true, alerts: [] });
   }
 }

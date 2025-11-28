@@ -21,6 +21,7 @@ import {
   createOffchainAlert,
   getAlertsByWallet,
   getActiveAlerts,
+  getTriggeredAlertsSince,
   deleteAlert,
   addTrackedToken,
   removeTrackedToken,
@@ -339,6 +340,14 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     if (path === "/api/alerts/active" && method === "GET") {
       const alerts = getActiveAlerts();
       return sendJson(res, 200, { success: true, alerts: alerts.map(toSnakeCase), count: alerts.length });
+    }
+
+    // Get recently triggered alerts (for toast notifications)
+    if (path === "/api/alerts/triggered" && method === "GET") {
+      const sinceParam = url.searchParams.get("since");
+      const since = sinceParam ? parseInt(sinceParam, 10) : 0;
+      const alerts = getTriggeredAlertsSince(since);
+      return sendJson(res, 200, { success: true, alerts: alerts.map(toSnakeCase) });
     }
 
     // Delete alert

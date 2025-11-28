@@ -1,10 +1,69 @@
 # 🧩 Somnia DataGrid
 
-**Shared market data streams for the Somnia ecosystem.**
+**Shared market data streams for the Somnia ecosystem, powered by Somnia Data Streams.**
 
-Somnia DataGrid is a shared data layer for the Somnia ecosystem built on top of **Somnia Data Streams**. We run off-chain workers that aggregate price feeds (CoinGecko, DIA on Somnia) and publish them on-chain as typed, documented data streams. Other Somnia dapps can subscribe to these streams via WebSocket using the standard `@somnia-chain/streams` SDK and instantly get real-time prices without touching external APIs.
+Somnia DataGrid is a shared data layer for the Somnia ecosystem built on top of **Somnia Data Streams**. We run off-chain workers that aggregate price feeds (CoinGecko, DIA on Somnia), sentiment data, and news - then publish them on-chain as typed, documented data streams. Other Somnia dapps can subscribe to these streams via WebSocket using the standard `@somnia-chain/streams` SDK and instantly get real-time data without touching external APIs.
 
-> **Coming Soon:** Fear/greed indices and token sentiment streams.
+---
+
+## 🌊 Somnia Data Streams Integration
+
+This project demonstrates the power of **Somnia Data Streams** - a real-time, on-chain event streaming system that enables:
+
+### How We Use Somnia Data Streams
+
+| Stream Type | Event ID | Description |
+|-------------|----------|-------------|
+| **Price Feeds** | `PriceUpdateV2` | Real-time crypto prices (BTC, ETH, SOL, etc.) |
+| **Alert Triggers** | `AlertTriggeredV2` | Price alert notifications broadcast on-chain |
+| **Fear & Greed** | `FearGreedV1` | Market sentiment index (0-100) |
+| **Token Sentiment** | `TokenSentimentV1` | Crowd bullish/bearish percentages |
+| **News Events** | `NewsEventV1` | Crypto news with sentiment analysis |
+
+### Why Somnia Data Streams?
+
+```
+Traditional Approach:
+  App → Poll CoinGecko API → Process → Store → Poll again...
+  (High latency, rate limits, each app duplicates work)
+
+With Somnia Data Streams:
+  DataGrid Workers → Publish to Somnia Data Streams → Any dapp subscribes instantly
+  (Real-time push, shared infrastructure, on-chain verifiable)
+```
+
+**Benefits:**
+- ⚡ **Real-time push** - No polling, instant updates via WebSocket
+- 🔗 **On-chain provenance** - Data stored on Somnia, verifiable and composable
+- 🤝 **Shared infrastructure** - Dapps don't need their own API integrations
+- 📊 **Typed schemas** - Consistent, versioned data formats
+- 🚀 **Fast prototyping** - Build DeFi apps in hours by wiring into existing streams
+
+### Subscribe to DataGrid Streams
+
+Any Somnia dapp can consume our streams:
+
+```typescript
+import { SDK, SchemaEncoder } from "@somnia-chain/streams";
+import { createPublicClient, webSocket } from "viem";
+
+const client = createPublicClient({
+  transport: webSocket("wss://dream-rpc.somnia.network/ws"),
+});
+const sdk = new SDK({ public: client });
+
+// Subscribe to real-time price updates
+await sdk.streams.subscribe({
+  somniaStreamsEventId: "PriceUpdateV2",
+  onData: (data) => {
+    const encoder = new SchemaEncoder(
+      "uint64 timestamp, string symbol, uint256 price, uint8 decimals, string source, address sourceAddress"
+    );
+    const decoded = encoder.decodeData(data);
+    console.log(`${decoded[1].value}: $${Number(decoded[2].value) / 1e8}`);
+  },
+});
+```
 
 ---
 
@@ -13,48 +72,41 @@ Somnia DataGrid is a shared data layer for the Somnia ecosystem built on top of 
 | Component | Description |
 |-----------|-------------|
 | **Somnia DataGrid** (`workers/`) | Off-chain workers that publish on-chain market data streams |
-| **Somnia AlertGrid** (`frontend/`) | Reference dapp that subscribes to DataGrid streams for DeFi alerts and dashboards |
+| **Somnia AlertGrid** (`frontend/`) | Reference dapp with price alerts, sentiment dashboard, Telegram notifications |
+
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                      Somnia DataGrid                             │
 │              (workers/ - Market Data Publisher)                  │
 ├─────────────────────────────────────────────────────────────────┤
-│  📈 Price Feeds                                                 │
-│  • CoinGecko + DIA Oracle → PriceUpdateV2 events                │
+│  📈 Price Feeds (PriceUpdateV2)                                 │
+│  • CoinGecko + DIA Oracle → Real-time prices on-chain           │
 │                                                                  │
 │  📊 Sentiment Streams                                           │
-│  • Fear & Greed Index → FearGreedUpdateV1 events                │
-│  • Token Crowd Sentiment → TokenSentimentUpdateV1 events        │
-│  • News Events → NewsEventV1 events (CryptoPanic)               │
-│  • News Aggregates → NewsAggregateV1 events                     │
+│  • Fear & Greed Index (FearGreedV1)                             │
+│  • Token Crowd Sentiment (TokenSentimentV1)                     │
+│  • News Events (NewsEventV1)                                    │
+│                                                                  │
+│  🔔 Alert System                                                │
+│  • Price alerts stored in SQLite (Drizzle ORM)                  │
+│  • Triggers broadcast via AlertTriggeredV2 events               │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               │ Somnia Data Streams
-                              │ (on-chain, any dapp can read)
+                              │ (WebSocket subscription)
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                      Somnia AlertGrid                            │
 │              (frontend/ - Reference DeFi Dapp)                   │
 ├─────────────────────────────────────────────────────────────────┤
-│  • Real-time price dashboard                                    │
-│  • On-chain alert creation                                      │
-│  • Telegram notifications when alerts trigger                   │
-│  • Shows how to consume DataGrid streams                        │
+│  • Real-time price dashboard (subscribes to PriceUpdateV2)      │
+│  • Price alerts with toast notifications                        │
+│  • Sentiment dashboard (Fear/Greed, token sentiment)            │
+│  • Telegram bot integration for mobile alerts                   │
+│  • Token tracking for custom sentiment monitoring               │
 └─────────────────────────────────────────────────────────────────┘
 ```
-
----
-
-## Why DataGrid is Useful for the Ecosystem
-
-| Benefit | Description |
-|---------|-------------|
-| **Shared infra** | Dapps don't need to integrate CoinGecko, DIA, or sentiment APIs themselves |
-| **Standardized schemas** | Price feeds published with stable, versioned schemas on Somnia Data Streams |
-| **Real-time by default** | Push updates via WebSocket instead of polling |
-| **On-chain provenance** | Values stored on Somnia, verifiable and composable |
-| **Faster prototyping** | Build DeFi protocols in hours by wiring into DataGrid streams |
 
 ---
 
@@ -77,7 +129,7 @@ npm run dev
 
 **Services:**
 - **AlertGrid Frontend:** http://localhost:3000
-- **DataGrid Workers:** Background process (port 3001 API)
+- **DataGrid Workers API:** http://localhost:3001
 
 ---
 
@@ -87,55 +139,79 @@ npm run dev
 |-------|------------|
 | **Blockchain** | Somnia Testnet + `@somnia-chain/streams` SDK |
 | **Frontend** | Next.js 16 + React 19 + TypeScript + Tailwind v4 |
-| **Workers** | Node.js + better-sqlite3 + TypeScript |
-| **Price Sources** | CoinGecko Demo API (multi-key) + DIA Oracle |
+| **Workers** | Node.js + Drizzle ORM + better-sqlite3 |
+| **Price Sources** | CoinGecko API (multi-key rotation) + DIA Oracle |
 | **Notifications** | Telegram Bot API |
 
 ---
 
-## Data Streams
+## Data Streams Reference
 
-### Price Feeds
+### Price Feeds (`PriceUpdateV2`)
+
+**Schema:** `uint64 timestamp, string symbol, uint256 price, uint8 decimals, string source, address sourceAddress`
+
 | Source | Assets |
 |--------|--------|
-| **CoinGecko** | BTC, ETH, USDC, USDT, ARB, SOL, WETH, LINK, UNI, AAVE, MATIC, AVAX, and more |
-| **DIA Oracle** | SOMI (Somnia token), BTC, ETH, USDC, USDT, ARB, SOL |
+| **CoinGecko** | BTC, ETH, USDC, USDT, ARB, SOL, LINK, UNI, AAVE, MATIC, AVAX |
+| **DIA Oracle** | STT (Somnia native), fallback for others |
 
 ### Sentiment Streams
-| Stream | Source | Update Frequency |
-|--------|--------|------------------|
-| **Fear & Greed Index** | Alternative.me | Daily |
-| **Token Crowd Sentiment** | CoinGecko votes | Every 2 hours |
-| **News Events** | CryptoPanic | Real-time (60s poll) |
-| **News Aggregates** | CryptoPanic | Every 10 minutes |
+
+| Stream | Event ID | Schema | Update Frequency |
+|--------|----------|--------|------------------|
+| **Fear & Greed** | `FearGreedV1` | `uint64 timestamp, uint8 score, string zone, string source, uint64 nextUpdate` | Daily |
+| **Token Sentiment** | `TokenSentimentV1` | `uint64 timestamp, string symbol, uint16 upPercent, uint16 downPercent, int16 netScore, uint32 sampleSize, string source` | 2 hours |
+| **News Events** | `NewsEventV1` | `bytes32 newsId, uint64 timestamp, string symbol, string title, string url, string source, string sentiment, string impact, uint16 votesPos, uint16 votesNeg, uint16 votesImp` | Real-time |
+
+### Alert Events (`AlertTriggeredV2`)
+
+**Schema:** `bytes32 alertId, address userAddress, string asset, string condition, uint256 thresholdPrice, uint256 currentPrice, uint64 triggeredAt`
+
+When a price alert triggers, the event is broadcast on-chain so any subscribed client receives instant notification.
 
 ---
 
-## How Other Dapps Can Use DataGrid
+## Features
 
-Any Somnia dapp can subscribe to DataGrid streams using the standard SDK:
+### Price Alerts
+- Create alerts for any tracked asset (BTC, ETH, etc.)
+- Conditions: Price goes ABOVE or BELOW threshold
+- Instant toast notifications in browser
+- Telegram notifications for mobile
 
-```typescript
-import { SDK } from "@somnia-chain/streams";
-import { createPublicClient, webSocket } from "viem";
+### Sentiment Dashboard
+- Fear & Greed Index gauge
+- Token sentiment cards (bullish/bearish %)
+- Track custom tokens for sentiment monitoring
+- Live news feed with sentiment analysis
 
-// Connect to Somnia
-const client = createPublicClient({
-  transport: webSocket("wss://dream-rpc.somnia.network/ws"),
-});
-const sdk = new SDK({ public: client });
+### Telegram Integration
+- Link wallet to Telegram via deep link
+- Receive price alert notifications
+- Receive sentiment alert notifications
+- Commands: `/alerts`, `/test`, `/unlink`, `/help`
 
-// Subscribe to price updates
-await sdk.streams.subscribe({
-  somniaStreamsEventId: "PriceUpdateV2",
-  onData: (data) => {
-    // Decode and use the price data
-    console.log("New price:", data);
-  },
-});
+---
+
+## Database (Drizzle ORM)
+
+Workers use SQLite with Drizzle ORM for type-safe database operations:
+
+```bash
+cd workers
+
+# Generate migration after schema changes
+npm run db:generate
+
+# Push schema to database (dev)
+npm run db:push
+
+# Visual database browser
+npm run db:studio
 ```
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed schemas and examples.
+**Tables:** `offchain_alerts`, `telegram_links`, `tracked_tokens`, `sentiment_alerts`, `price_history`, `fear_greed_cache`, `token_sentiment_cache`, `news_cache`
 
 ---
 
@@ -143,11 +219,11 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed schemas and examples.
 
 | Document | Description |
 |----------|-------------|
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | Deep dive into Somnia Data Streams, schemas, and system design |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | Deep dive into Somnia Data Streams, schemas, system design |
 | [QUICK_START.md](./QUICK_START.md) | Fast setup guide and FAQ |
+| [DATAGRID_API.md](./DATAGRID_API.md) | Workers API reference |
 | [DEPLOYMENT.md](./DEPLOYMENT.md) | Production deployment (Vercel + Railway) |
 | [VPS_SETUP.md](./VPS_SETUP.md) | Self-hosted VPS setup |
-| [frontend/README.md](./frontend/README.md) | AlertGrid dapp documentation |
 
 ---
 
@@ -164,14 +240,13 @@ somnia-datagrid/
 │
 ├── workers/               # Somnia DataGrid (data infrastructure)
 │   ├── src/
-│   │   ├── services/     # Price publisher, alert checker
-│   │   ├── db/           # SQLite for persistence
+│   │   ├── services/     # Price publisher, sentiment publisher, alert checker
+│   │   ├── db/           # Drizzle ORM schema and client
 │   │   └── api.ts        # HTTP API for frontend sync
+│   ├── drizzle/          # Database migrations
 │   └── package.json
 │
 ├── scripts/               # Development helpers
-├── ARCHITECTURE.md        # Technical deep dive
-├── QUICK_START.md         # Setup guide
 └── README.md              # This file
 ```
 
@@ -186,10 +261,11 @@ somnia-datagrid/
 - [x] Telegram notifications
 - [x] Fear & Greed Index stream
 - [x] Token Crowd Sentiment stream
-- [x] News Events stream (CryptoPanic)
-- [x] News Aggregates stream
-- [ ] LLM-enriched narrative sentiment (optional)
+- [x] News Events stream
+- [x] Drizzle ORM migration
+- [x] Toast notifications for triggered alerts
 - [ ] More price sources
+- [ ] Historical price charts
 
 ---
 

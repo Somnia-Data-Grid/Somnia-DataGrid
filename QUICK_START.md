@@ -6,8 +6,8 @@
 # Install everything
 npm run install:all
 
-# Initialize database
-cd workers && npm run db:migrate && cd ..
+# Push database schema (Drizzle ORM)
+cd workers && npm run db:push && cd ..
 
 # Start development
 npm run dev
@@ -171,21 +171,25 @@ somnia-datagrid/
 │   │   ├── components/    # React components
 │   │   ├── lib/           # Utilities
 │   │   │   ├── db/        # In-memory store
+│   │   │   ├── hooks/     # React hooks (usePriceSubscription, etc.)
+│   │   │   ├── services/  # Alert service, price publisher
 │   │   │   └── telegram/  # Telegram helpers
 │   │   └── ...
 │   └── package.json
 │
 ├── workers/                # Somnia DataGrid (data infrastructure)
 │   ├── src/
-│   │   ├── db/            # SQLite client
-│   │   │   ├── schema.sql
-│   │   │   ├── client.ts
-│   │   │   └── migrate.ts
+│   │   ├── db/            # Drizzle ORM
+│   │   │   ├── schema.ts  # TypeScript schema definitions
+│   │   │   └── client.ts  # Database client
 │   │   └── services/
 │   │       ├── price-publisher.ts
+│   │       ├── sentiment-publisher.ts
+│   │       ├── alert-checker.ts
 │   │       ├── coingecko.ts
 │   │       ├── dia.ts
 │   │       └── telegram.ts
+│   ├── drizzle/           # Database migrations
 │   ├── data/              # SQLite database (gitignored)
 │   └── package.json
 │
