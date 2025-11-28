@@ -9,7 +9,8 @@
     "build": "tsc",
     "db:migrate": "tsx src/db/migrate.ts",
     "publisher": "tsx src/services/price-publisher.ts",
-    "publisher:once": "tsx src/services/price-publisher.ts --once"
+    "publisher:once": "tsx src/services/price-publisher.ts --once",
+    "register-sentiment-schemas": "tsx src/register-sentiment-schemas.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.6.0",
