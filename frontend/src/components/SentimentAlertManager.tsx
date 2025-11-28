@@ -56,20 +56,20 @@ export function SentimentAlertManager() {
 
   if (!isConnected) {
     return (
-      <div className="bg-gray-900 rounded-xl p-6 border border-gray-800">
-        <h3 className="text-lg font-semibold text-white mb-4">Sentiment Alerts</h3>
-        <p className="text-gray-400 text-sm">Connect your wallet to manage sentiment alerts.</p>
+      <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h3 className="text-lg font-semibold text-slate-800 mb-4">Sentiment Alerts</h3>
+        <p className="text-slate-500 text-sm">Connect your wallet to manage sentiment alerts.</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-gray-900 rounded-xl p-6 border border-gray-800">
+    <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-white">Sentiment Alerts</h3>
+        <h3 className="text-lg font-semibold text-slate-800">Sentiment Alerts</h3>
         <button
           onClick={() => setShowForm(!showForm)}
-          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors"
+          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
         >
           {showForm ? 'Cancel' : '+ New Alert'}
         </button>
@@ -77,13 +77,13 @@ export function SentimentAlertManager() {
 
       {/* Create Alert Form */}
       {showForm && (
-        <div className="mb-6 p-4 bg-gray-800 rounded-lg space-y-4">
+        <div className="mb-6 p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-4">
           <div>
-            <label className="block text-sm text-gray-400 mb-1">Token</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Token</label>
             <select
               value={selectedCoin}
               onChange={(e) => setSelectedCoin(e.target.value)}
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
             >
               <option value="">Select a token...</option>
               {trackedTokens.map((token) => (
@@ -92,14 +92,19 @@ export function SentimentAlertManager() {
                 </option>
               ))}
             </select>
+            {trackedTokens.length === 0 && (
+              <p className="text-xs text-amber-600 mt-1">
+                No tokens tracked yet. Go to the Tokens tab to add some first.
+              </p>
+            )}
           </div>
 
           <div>
-            <label className="block text-sm text-gray-400 mb-1">Alert Type</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Alert Type</label>
             <select
               value={alertType}
               onChange={(e) => setAlertType(e.target.value as SentimentAlert['alert_type'])}
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
             >
               <option value="SENTIMENT_UP">📈 When bullish sentiment exceeds threshold</option>
               <option value="SENTIMENT_DOWN">📉 When bearish sentiment exceeds threshold</option>
@@ -108,7 +113,7 @@ export function SentimentAlertManager() {
           </div>
 
           <div>
-            <label className="block text-sm text-gray-400 mb-1">
+            <label className="block text-sm font-medium text-slate-700 mb-1">
               Threshold: {threshold}%
             </label>
             <input
@@ -117,9 +122,9 @@ export function SentimentAlertManager() {
               max="90"
               value={threshold}
               onChange={(e) => setThreshold(Number(e.target.value))}
-              className="w-full accent-blue-500"
+              className="w-full accent-blue-600"
             />
-            <div className="flex justify-between text-xs text-gray-500 mt-1">
+            <div className="flex justify-between text-xs text-slate-400 mt-1">
               <span>10%</span>
               <span>50%</span>
               <span>90%</span>
@@ -129,7 +134,7 @@ export function SentimentAlertManager() {
           <button
             onClick={handleCreate}
             disabled={!selectedCoin || isCreating}
-            className="w-full py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+            className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
           >
             {isCreating ? 'Creating...' : 'Create Alert'}
           </button>
@@ -142,7 +147,7 @@ export function SentimentAlertManager() {
           <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
         </div>
       ) : alerts.length === 0 ? (
-        <p className="text-gray-500 text-sm text-center py-4">
+        <p className="text-slate-400 text-sm text-center py-6">
           No sentiment alerts yet. Create one to get notified!
         </p>
       ) : (
@@ -152,33 +157,33 @@ export function SentimentAlertManager() {
               key={alert.id}
               className={`p-4 rounded-lg border ${
                 alert.status === 'ACTIVE'
-                  ? 'bg-gray-800 border-gray-700'
-                  : 'bg-gray-800/50 border-gray-700/50'
+                  ? 'bg-slate-50 border-slate-200'
+                  : 'bg-slate-50/50 border-slate-200/50'
               }`}
             >
               <div className="flex items-start justify-between">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="font-mono text-blue-400">{alert.symbol}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded ${
+                    <span className="font-mono text-blue-600 font-medium">{alert.symbol}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                       alert.status === 'ACTIVE' 
-                        ? 'bg-green-500/20 text-green-400' 
-                        : 'bg-gray-500/20 text-gray-400'
+                        ? 'bg-emerald-100 text-emerald-700' 
+                        : 'bg-slate-200 text-slate-500'
                     }`}>
                       {alert.status}
                     </span>
                   </div>
-                  <p className="text-sm text-gray-300">
+                  <p className="text-sm text-slate-600">
                     {ALERT_TYPE_LABELS[alert.alert_type]} &gt; {alert.threshold}%
                   </p>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-slate-400 mt-1">
                     Created {formatDate(alert.created_at)}
                   </p>
                 </div>
                 {alert.status === 'ACTIVE' && (
                   <button
                     onClick={() => deleteAlert(alert.id)}
-                    className="text-gray-500 hover:text-red-400 transition-colors p-1"
+                    className="text-slate-400 hover:text-red-500 transition-colors p-1"
                     title="Delete alert"
                   >
                     🗑️

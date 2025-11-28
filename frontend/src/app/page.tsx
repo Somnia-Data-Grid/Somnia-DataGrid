@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { PriceDashboard } from "@/components/PriceDashboard";
 import { AlertManager } from "@/components/AlertManager";
+import { SentimentDashboard } from "@/components/SentimentDashboard";
 import { usePriceSubscription, type UiPrice } from "@/lib/hooks/usePriceSubscription";
 import { AlertNotification } from "@/components/AlertNotification";
 import { ConnectWalletButton } from "@/components/ConnectWalletButton";
@@ -87,6 +88,7 @@ export default function HomePage() {
           <>
             <PriceDashboard prices={prices} />
             <AlertManager prices={prices} />
+            <SentimentDashboard />
           </>
         )}
       </main>

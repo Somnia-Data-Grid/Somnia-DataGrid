@@ -85,7 +85,7 @@ export function TokenSearch({ onTokenSelect, walletAddress, showTrackedTokens = 
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => query.length >= 2 && setShowDropdown(true)}
           placeholder="Search tokens (e.g., BTC, Ethereum)..."
-          className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
+          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
         />
         {isSearching && (
           <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -97,29 +97,29 @@ export function TokenSearch({ onTokenSelect, walletAddress, showTrackedTokens = 
         {showDropdown && searchResults.length > 0 && (
           <div
             ref={dropdownRef}
-            className="absolute z-50 w-full mt-2 bg-gray-800 border border-gray-700 rounded-lg shadow-xl max-h-64 overflow-y-auto"
+            className="absolute z-50 w-full mt-2 bg-white border border-slate-200 rounded-lg shadow-lg max-h-64 overflow-y-auto"
           >
             {searchResults.map((token) => (
               <button
                 key={token.id}
                 onClick={() => handleSelect(token)}
                 disabled={isTracked(token.id)}
-                className={`w-full px-4 py-3 flex items-center justify-between hover:bg-gray-700 transition-colors first:rounded-t-lg last:rounded-b-lg ${
+                className={`w-full px-4 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors first:rounded-t-lg last:rounded-b-lg text-left ${
                   isTracked(token.id) ? 'opacity-50 cursor-not-allowed' : ''
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <span className="text-sm font-mono text-blue-400 uppercase">
+                  <span className="text-sm font-mono text-blue-600 uppercase font-medium">
                     {token.symbol}
                   </span>
-                  <span className="text-gray-300 text-sm truncate max-w-[200px]">
+                  <span className="text-slate-600 text-sm truncate max-w-[200px]">
                     {token.name}
                   </span>
                 </div>
                 {isTracked(token.id) ? (
-                  <span className="text-xs text-green-500">Tracked</span>
+                  <span className="text-xs text-emerald-600 font-medium">Tracked</span>
                 ) : (
-                  <span className="text-xs text-gray-500">+ Add</span>
+                  <span className="text-xs text-slate-400">+ Add</span>
                 )}
               </button>
             ))}
@@ -130,19 +130,19 @@ export function TokenSearch({ onTokenSelect, walletAddress, showTrackedTokens = 
       {/* Tracked Tokens */}
       {showTrackedTokens && trackedTokens.length > 0 && (
         <div>
-          <h4 className="text-sm text-gray-400 mb-2">Tracked Tokens</h4>
+          <h4 className="text-sm text-slate-500 mb-2">Tracked Tokens</h4>
           <div className="flex flex-wrap gap-2">
             {trackedTokens.map((token) => (
               <div
                 key={token.coin_id}
-                className="flex items-center gap-2 px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-full"
+                className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-full"
               >
-                <span className="text-sm font-mono text-blue-400">
+                <span className="text-sm font-mono text-blue-700 font-medium">
                   {token.symbol}
                 </span>
                 <button
                   onClick={() => untrackToken(token.coin_id)}
-                  className="text-gray-500 hover:text-red-400 transition-colors"
+                  className="text-blue-400 hover:text-red-500 transition-colors text-lg leading-none"
                   title="Remove"
                 >
                   ×
