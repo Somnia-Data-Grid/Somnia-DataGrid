@@ -96,13 +96,13 @@ export function AlertManager({ prices }: AlertManagerProps) {
         <div>
           <label className="text-sm font-medium text-slate-700">Asset</label>
           <select
-            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"
             value={asset}
             onChange={(event) => setAsset(event.target.value)}
           >
-            <option value="">Select asset</option>
+            <option value="" className="text-slate-500">Select asset</option>
             {sortedAssets.map((item) => (
-              <option key={item.symbol} value={item.symbol}>
+              <option key={item.symbol} value={item.symbol} className="text-slate-800">
                 {item.symbol} (${item.price})
               </option>
             ))}
