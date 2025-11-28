@@ -106,8 +106,13 @@ export function AlertNotification({ alerts, onDismiss }: AlertNotificationProps)
                   {toast.condition === "ABOVE" ? "above" : "below"}
                 </span>{" "}
                 <span className="font-mono font-semibold">
-                  {formatThreshold(toast.thresholdPrice)}
+                  ${formatThreshold(toast.thresholdPrice)}
                 </span>
+                {toast.currentPrice && (
+                  <span className="text-slate-500">
+                    {" "}→ ${formatThreshold(toast.currentPrice)}
+                  </span>
+                )}
               </p>
               <p className="mt-1 text-xs text-slate-400">
                 {toast.triggeredAt > 0

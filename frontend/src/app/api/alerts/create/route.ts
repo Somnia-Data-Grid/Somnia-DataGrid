@@ -1,72 +1,66 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAlert, registerAlertSchema } from "@/lib/services/alertService";
 
-function getDefaultUserAddress(): `0x${string}` | null {
-  const address = process.env.ALERT_DEFAULT_USER ?? process.env.PUBLISHER_ADDRESS;
-  
-  // Validate it's actually an address (starts with 0x and is 42 chars)
-  if (address && /^0x[a-fA-F0-9]{40}$/.test(address)) {
-    return address as `0x${string}`;
-  }
-  
-  return null;
-}
+const WORKERS_API_URL = process.env.WORKERS_API_URL || "http://localhost:3001";
+const WORKERS_API_SECRET = process.env.WORKERS_API_SECRET;
 
 export async function POST(request: NextRequest) {
   try {
-    await registerAlertSchema();
     const body = await request.json();
     const { asset, condition, thresholdPrice, userAddress } = body as {
       asset?: string;
       condition?: "ABOVE" | "BELOW";
       thresholdPrice?: string;
-      userAddress?: `0x${string}`;
+      userAddress?: string;
     };
 
     if (!asset || !condition || !thresholdPrice) {
       return NextResponse.json(
-        {
-          success: false,
-          error: "asset, condition and thresholdPrice are required",
-        },
+        { success: false, error: "asset, condition and thresholdPrice are required" },
         { status: 400 },
       );
     }
 
-    const address = userAddress ?? getDefaultUserAddress();
-    if (!address) {
+    // Use provided address or fall back to env default
+    const walletAddress = userAddress || process.env.ALERT_DEFAULT_USER || process.env.PUBLISHER_ADDRESS;
+    
+    if (!walletAddress) {
       return NextResponse.json(
-        {
-          success: false,
-          error: "No user address provided. Connect wallet or configure ALERT_DEFAULT_USER.",
-        },
+        { success: false, error: "No user address provided. Connect wallet or configure ALERT_DEFAULT_USER." },
         { status: 400 },
       );
     }
 
-    const threshold = BigInt(thresholdPrice);
-
-    const { alertId, txHash } = await createAlert({
-      userAddress: address,
-      asset,
-      condition,
-      thresholdPrice: threshold,
+    // Forward to Workers API (off-chain storage)
+    const response = await fetch(`${WORKERS_API_URL}/api/alerts/create`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(WORKERS_API_SECRET && { Authorization: `Bearer ${WORKERS_API_SECRET}` }),
+      },
+      body: JSON.stringify({
+        walletAddress,
+        asset,
+        condition,
+        thresholdPrice,
+      }),
     });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || "Failed to create alert");
+    }
 
     return NextResponse.json({
       success: true,
-      alertId,
-      txHash,
+      alertId: data.alert.id,
+      alert: data.alert,
     });
   } catch (error) {
     console.error("[API] alert create error", error);
     return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error",
-      },
+      { success: false, error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 },
     );
   }
 }
-

@@ -1,36 +1,17 @@
-import { NextRequest, NextResponse } from "next/server";
-import { checkAlerts } from "@/lib/services/alertService";
+import { NextResponse } from "next/server";
 
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { symbol, price } = body as { symbol?: string; price?: string };
-
-    if (!symbol || !price) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "symbol and price are required",
-        },
-        { status: 400 },
-      );
-    }
-
-    const triggered = await checkAlerts(symbol, BigInt(price));
-
-    return NextResponse.json({
-      success: true,
-      triggered,
-    });
-  } catch (error) {
-    console.error("[API] alert check error", error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 },
-    );
-  }
+/**
+ * This endpoint is deprecated.
+ * Alert checking is now handled by the Workers service automatically
+ * when prices are published.
+ */
+export async function POST() {
+  return NextResponse.json(
+    {
+      success: false,
+      error: "Alert checking is now handled automatically by the Workers service",
+      message: "This endpoint is deprecated. Alerts are checked automatically when prices are published.",
+    },
+    { status: 410 }, // Gone
+  );
 }
-

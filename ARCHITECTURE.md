@@ -177,76 +177,81 @@ const txHash = await sdk.streams.setAndEmitEvents(
 
 ## 3. Alert System Architecture
 
+### Hybrid Approach: Off-chain Storage + On-chain Events
+
+Alerts use a **hybrid architecture** for optimal performance:
+- **Storage**: SQLite in Workers (fast CRUD, ~5ms)
+- **Notifications**: On-chain events via Somnia Data Streams (WebSocket push)
+
+This gives us instant alert creation while still leveraging blockchain for real-time notifications.
+
 ### Alert Lifecycle
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  User        │────▶│  Create      │────▶│  Store on    │────▶│  Alert       │
-│  Dashboard   │     │  Alert       │     │  Blockchain  │     │  ACTIVE      │
-└──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
+│  User        │────▶│  Create      │────▶│  Store in    │────▶│  Alert       │
+│  Dashboard   │     │  Alert       │     │  SQLite      │     │  ACTIVE      │
+└──────────────┘     └──────────────┘     │  (Workers)   │     │  (~5ms)      │
+                                          └──────────────┘     └──────────────┘
                                                                       │
                                                                       ▼
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  Telegram    │◀────│  Send        │◀────│  Trigger     │◀────│  Price       │
-│  Notification│     │  Notification│     │  Alert       │     │  Check       │
-└──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
+│  Telegram    │◀────│  Emit Event  │◀────│  Trigger     │◀────│  Price       │
+│  Notification│     │  On-chain    │     │  Alert       │     │  Check       │
+└──────────────┘     │  (WebSocket) │     │  (SQLite)    │     │  (~5ms)      │
+                     └──────────────┘     └──────────────┘     └──────────────┘
 ```
 
-### Creating Alerts (On-chain)
+### Why Hybrid?
+
+| Aspect | On-chain Only | Hybrid (Current) |
+|--------|---------------|------------------|
+| Create alert | 2-5 seconds | ~5ms |
+| Check alerts | 500ms-2s | ~5ms |
+| Trigger notification | On-chain event ✅ | On-chain event ✅ |
+| WebSocket push | ✅ | ✅ |
+| Scalability | Limited by gas | Unlimited |
+
+### Creating Alerts (Off-chain via Workers API)
 
 ```typescript
-// web/src/lib/services/alertService.ts
+// Frontend calls Workers API
+const response = await fetch("/api/alerts/create", {
+  method: "POST",
+  body: JSON.stringify({
+    walletAddress: "0x...",
+    asset: "BTC",
+    condition: "ABOVE",
+    thresholdPrice: "10000000000000", // 8 decimals
+  }),
+});
 
-export async function createAlert({
-  userAddress,
-  asset,
-  condition,  // "ABOVE" | "BELOW"
-  thresholdPrice,
-}) {
-  // 1. Generate unique alert ID
-  const alertKey = `${userAddress}-${asset}-${Date.now()}`;
-  const alertId = keccak256(stringToBytes(alertKey));
-
-  // 2. Encode alert data
-  const encoded = encoder.encodeData([
-    { name: "alertId", value: alertId, type: "bytes32" },
-    { name: "userAddress", value: userAddress, type: "address" },
-    { name: "asset", value: asset, type: "string" },
-    { name: "condition", value: condition, type: "string" },
-    { name: "thresholdPrice", value: thresholdPrice.toString(), type: "uint256" },
-    { name: "status", value: "ACTIVE", type: "string" },
-    { name: "createdAt", value: now.toString(), type: "uint64" },
-    { name: "triggeredAt", value: "0", type: "uint64" },
-  ]);
-
-  // 3. Store on blockchain
-  const txHash = await sdk.streams.set([{
-    id: alertId,
-    schemaId,
-    data: encoded,
-  }]);
-
-  return { alertId, txHash };
-}
+// Workers stores in SQLite (instant)
+const alert = createOffchainAlert({
+  id: alertId,
+  wallet_address: walletAddress,
+  asset: asset.toUpperCase(),
+  condition,
+  threshold_price: thresholdPrice,
+  status: "ACTIVE",
+  created_at: Math.floor(Date.now() / 1000),
+});
 ```
 
-### Reading Alerts from Blockchain
+### Reading Alerts (from SQLite)
 
 ```typescript
-// Get all alerts for a publisher
-const rawData = await sdk.streams.getAllPublisherDataForSchema(schemaId, publisherAddress);
-
-// Decode each alert
-const alerts = rawData.map(data => decodeAlert(data));
+// Get all alerts for a wallet (fast!)
+const alerts = getAlertsByWallet(walletAddress);
 const activeAlerts = alerts.filter(a => a.status === "ACTIVE");
 ```
 
-### Triggering Alerts
+### Triggering Alerts + Emitting On-chain Events
 
 ```typescript
 // workers/src/services/alert-checker.ts
 
 export async function checkAndTriggerAlerts(symbol: string, currentPrice: bigint) {
-  // 1. Read active alerts from blockchain
+  // 1. Read active alerts from SQLite (fast! ~5ms)
   const alerts = await getActiveAlertsFromBlockchain();
 
   for (const alert of alerts) {
@@ -256,18 +261,20 @@ export async function checkAndTriggerAlerts(symbol: string, currentPrice: bigint
       (alert.condition === "BELOW" && currentPrice <= alert.thresholdPrice);
 
     if (shouldTrigger) {
-      // 3. Update alert status on blockchain + emit event
-      await sdk.streams.setAndEmitEvents(
-        [{ id: alert.alertId, schemaId, data: encodedTriggeredAlert }],
-        [{ id: "AlertTriggeredV2", argumentTopics: [], data: encodedTriggeredAlert }]
-      );
+      // 3. Update alert status in SQLite
+      triggerAlert(alert.id);
 
-      // 4. Send Telegram notification
+      // 4. Emit event on-chain (for WebSocket subscribers) - NO data storage!
+      await sdk.streams.emitEvents([
+        { id: "AlertTriggeredV2", argumentTopics: [], data: encodedAlertEvent }
+      ]);
+
+      // 5. Send Telegram notification
       await sendAlertNotification({
-        walletAddress: alert.userAddress,
+        walletAddress: alert.wallet_address,
         asset: alert.asset,
         condition: alert.condition,
-        thresholdPrice: alert.thresholdPrice,
+        thresholdPrice: alert.threshold_price,
         currentPrice,
       });
     }

@@ -56,7 +56,7 @@ export function AlertManager({ prices }: AlertManagerProps) {
 
       setMessage({
         type: "success",
-        text: `Alert created! Tx: ${String(data.txHash).slice(0, 10)}...`,
+        text: `Alert created! ID: ${String(data.alertId).slice(0, 10)}...`,
       });
       setThreshold("");
     } catch (error) {

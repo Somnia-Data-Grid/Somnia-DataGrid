@@ -3,22 +3,29 @@
  * 
  * Provides endpoints for:
  * - Syncing Telegram links from frontend
+ * - Alert CRUD (off-chain storage)
  * - Health checks
  * 
  * Run alongside the price publisher.
  */
 
 import { createServer, IncomingMessage, ServerResponse } from "http";
+import { keccak256, stringToBytes } from "viem";
 import { 
   upsertTelegramLink, 
   verifyTelegramLink, 
   deleteTelegramLink,
   getTelegramLink,
   getTelegramLinkByChatId,
-  type TelegramLink 
+  createOffchainAlert,
+  getAlertsByWallet,
+  getActiveAlerts,
+  deleteAlert,
+  type TelegramLink,
+  type OffchainAlert,
 } from "./db/client.js";
 
-const API_PORT = parseInt(process.env.WORKERS_API_PORT || "3001", 10);
+const API_PORT = parseInt(process.env.PORT || process.env.WORKERS_API_PORT || "3001", 10);
 const API_SECRET = process.env.WORKERS_API_SECRET;
 
 function parseBody(req: IncomingMessage): Promise<any> {
@@ -145,6 +152,73 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
 
       const link = getTelegramLinkByChatId(chatId);
       return sendJson(res, 200, { success: true, link });
+    }
+
+    // ============ Alert Endpoints ============
+
+    // Create alert (off-chain)
+    if (path === "/api/alerts/create" && method === "POST") {
+      const body = await parseBody(req);
+      const { walletAddress, asset, condition, thresholdPrice } = body;
+
+      if (!walletAddress || !asset || !condition || !thresholdPrice) {
+        return sendJson(res, 400, { 
+          error: "walletAddress, asset, condition, and thresholdPrice required" 
+        });
+      }
+
+      if (!["ABOVE", "BELOW"].includes(condition)) {
+        return sendJson(res, 400, { error: "condition must be ABOVE or BELOW" });
+      }
+
+      // Generate unique alert ID
+      const alertKey = `${walletAddress}-${asset}-${Date.now()}`;
+      const alertId = keccak256(stringToBytes(alertKey));
+
+      const alert = createOffchainAlert({
+        id: alertId,
+        wallet_address: walletAddress,
+        asset: asset.toUpperCase(),
+        condition,
+        threshold_price: thresholdPrice,
+        status: "ACTIVE",
+        created_at: Math.floor(Date.now() / 1000),
+      });
+
+      console.log(`[API] Created alert ${alertId.slice(0, 10)}... for ${walletAddress.slice(0, 10)}...`);
+      return sendJson(res, 200, { success: true, alert });
+    }
+
+    // Get alerts by wallet
+    if (path === "/api/alerts" && method === "GET") {
+      const walletAddress = url.searchParams.get("wallet");
+
+      if (!walletAddress) {
+        return sendJson(res, 400, { error: "wallet query param required" });
+      }
+
+      const alerts = getAlertsByWallet(walletAddress);
+      return sendJson(res, 200, { success: true, alerts });
+    }
+
+    // Get all active alerts (for internal use)
+    if (path === "/api/alerts/active" && method === "GET") {
+      const alerts = getActiveAlerts();
+      return sendJson(res, 200, { success: true, alerts, count: alerts.length });
+    }
+
+    // Delete alert
+    if (path === "/api/alerts/delete" && method === "POST") {
+      const body = await parseBody(req);
+      const { alertId } = body;
+
+      if (!alertId) {
+        return sendJson(res, 400, { error: "alertId required" });
+      }
+
+      const deleted = deleteAlert(alertId);
+      console.log(`[API] Deleted alert ${alertId.slice(0, 10)}...: ${deleted}`);
+      return sendJson(res, 200, { success: true, deleted });
     }
 
     // 404

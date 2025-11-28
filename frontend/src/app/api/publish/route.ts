@@ -4,7 +4,6 @@ import {
   publishPrice,
   registerPriceFeedSchema,
 } from "@/lib/services/pricePublisher";
-import { registerAlertSchema } from "@/lib/services/alertService";
 
 export async function GET() {
   return NextResponse.json({
@@ -15,7 +14,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    await Promise.all([registerPriceFeedSchema(), registerAlertSchema()]);
+    await registerPriceFeedSchema();
 
     const body = await request.json().catch(() => ({}));
     const { symbol } = body as { symbol?: string };

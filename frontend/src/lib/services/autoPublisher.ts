@@ -8,7 +8,7 @@
  */
 
 import { publishAllPrices, registerPriceFeedSchema, setPublisherConfig, getDefaultSymbols } from "./pricePublisher";
-import { registerAlertSchema } from "./alertService";
+// Note: Alert schema registration is no longer needed - alerts are stored off-chain in Workers
 
 // Configuration from environment
 const AUTO_PUBLISH_ENABLED = process.env.AUTO_PUBLISH === "true";
@@ -76,11 +76,10 @@ export async function initAutoPublisher(): Promise<void> {
   });
 
   try {
-    // Register schemas first
-    console.log("[AutoPublisher] Registering schemas...");
+    // Register price feed schema
+    console.log("[AutoPublisher] Registering price feed schema...");
     await registerPriceFeedSchema();
-    await registerAlertSchema();
-    console.log("[AutoPublisher] Schemas ready");
+    console.log("[AutoPublisher] Schema ready");
 
     // Start the publishing loop
     isRunning = true;

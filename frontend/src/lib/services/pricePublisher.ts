@@ -31,7 +31,7 @@ import {
   getAllSupportedSymbols,
   type PriceSourcePriority,
 } from "../oracles/aggregator";
-import { checkAlerts } from "./alertService";
+// Note: Alert checking is now handled by Workers service, not frontend
 
 // Publisher configuration
 export interface PublisherConfig {
@@ -273,8 +273,7 @@ export async function publishPrice(symbol: string): Promise<{ txHash: Hex; price
   const txHash = result;
   await waitForTransactionReceipt(getPublicHttpClient(), { hash: txHash });
 
-  // Check and trigger alerts
-  await checkAlerts(symbol, priceData.price);
+  // Note: Alert checking is handled by Workers service
 
   return { txHash, priceData };
 }
@@ -388,8 +387,7 @@ async function publishPriceData(priceData: PriceFeedData): Promise<Hex> {
   const txHash = result;
   await waitForTransactionReceipt(getPublicHttpClient(), { hash: txHash });
 
-  // Check and trigger alerts
-  await checkAlerts(priceData.symbol, priceData.price);
+  // Note: Alert checking is handled by Workers service
 
   return txHash;
 }
