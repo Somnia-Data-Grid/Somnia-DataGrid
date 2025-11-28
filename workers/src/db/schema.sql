@@ -57,3 +57,37 @@ CREATE TABLE IF NOT EXISTS notification_log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_notification_log_alert ON notification_log(alert_id);
+
+
+-- Tracked Tokens (user-selected tokens for sentiment tracking)
+CREATE TABLE IF NOT EXISTS tracked_tokens (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  coin_id TEXT NOT NULL UNIQUE,
+  symbol TEXT NOT NULL,
+  name TEXT NOT NULL,
+  added_by TEXT NOT NULL,
+  added_at INTEGER NOT NULL,
+  is_active INTEGER DEFAULT 1,
+  created_at INTEGER DEFAULT (strftime('%s', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_tracked_tokens_symbol ON tracked_tokens(symbol);
+CREATE INDEX IF NOT EXISTS idx_tracked_tokens_active ON tracked_tokens(is_active) WHERE is_active = 1;
+
+-- Sentiment Alerts (alerts based on sentiment changes)
+CREATE TABLE IF NOT EXISTS sentiment_alerts (
+  id TEXT PRIMARY KEY,
+  wallet_address TEXT NOT NULL,
+  coin_id TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  alert_type TEXT NOT NULL CHECK (alert_type IN ('SENTIMENT_UP', 'SENTIMENT_DOWN', 'FEAR_GREED')),
+  threshold INTEGER NOT NULL,
+  status TEXT DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'TRIGGERED', 'DISABLED')),
+  created_at INTEGER NOT NULL,
+  triggered_at INTEGER,
+  notified_at INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_sentiment_alerts_wallet ON sentiment_alerts(wallet_address);
+CREATE INDEX IF NOT EXISTS idx_sentiment_alerts_status ON sentiment_alerts(status);
+CREATE INDEX IF NOT EXISTS idx_sentiment_alerts_coin ON sentiment_alerts(coin_id);

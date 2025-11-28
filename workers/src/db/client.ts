@@ -46,6 +46,29 @@ export interface PriceRecord {
   timestamp: number;
 }
 
+export interface TrackedToken {
+  id?: number;
+  coin_id: string;
+  symbol: string;
+  name: string;
+  added_by: string;
+  added_at: number;
+  is_active: number;
+}
+
+export interface SentimentAlert {
+  id: string;
+  wallet_address: string;
+  coin_id: string;
+  symbol: string;
+  alert_type: "SENTIMENT_UP" | "SENTIMENT_DOWN" | "FEAR_GREED";
+  threshold: number;
+  status: "ACTIVE" | "TRIGGERED" | "DISABLED";
+  created_at: number;
+  triggered_at?: number;
+  notified_at?: number;
+}
+
 // Singleton database instance
 let db: Database.Database | null = null;
 
@@ -272,4 +295,97 @@ export function logNotification(
     VALUES (?, ?, ?, ?, ?, ?)
   `);
   stmt.run(alertId, walletAddress, telegramChatId, notificationType, status, errorMessage || null);
+}
+
+// ============ Tracked Tokens ============
+
+export function addTrackedToken(coinId: string, symbol: string, name: string, addedBy: string): TrackedToken {
+  const db = getDb();
+  const stmt = db.prepare(`
+    INSERT INTO tracked_tokens (coin_id, symbol, name, added_by, added_at, is_active)
+    VALUES (?, ?, ?, ?, ?, 1)
+    ON CONFLICT(coin_id) DO UPDATE SET
+      is_active = 1,
+      added_by = CASE WHEN added_by = 'system' THEN excluded.added_by ELSE added_by END
+    RETURNING *
+  `);
+  return stmt.get(coinId, symbol.toUpperCase(), name, addedBy, Math.floor(Date.now() / 1000)) as TrackedToken;
+}
+
+export function removeTrackedToken(coinId: string): boolean {
+  const db = getDb();
+  const stmt = db.prepare(`UPDATE tracked_tokens SET is_active = 0 WHERE coin_id = ?`);
+  return stmt.run(coinId).changes > 0;
+}
+
+export function getTrackedTokens(): TrackedToken[] {
+  const db = getDb();
+  const stmt = db.prepare(`SELECT * FROM tracked_tokens WHERE is_active = 1 ORDER BY added_at`);
+  return stmt.all() as TrackedToken[];
+}
+
+export function getTrackedTokenBySymbol(symbol: string): TrackedToken | null {
+  const db = getDb();
+  const stmt = db.prepare(`SELECT * FROM tracked_tokens WHERE UPPER(symbol) = UPPER(?) AND is_active = 1`);
+  return stmt.get(symbol) as TrackedToken | null;
+}
+
+// ============ Sentiment Alerts ============
+
+export function createSentimentAlert(alert: SentimentAlert): SentimentAlert {
+  const db = getDb();
+  const stmt = db.prepare(`
+    INSERT INTO sentiment_alerts (id, wallet_address, coin_id, symbol, alert_type, threshold, status, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    RETURNING *
+  `);
+  return stmt.get(
+    alert.id,
+    alert.wallet_address.toLowerCase(),
+    alert.coin_id,
+    alert.symbol.toUpperCase(),
+    alert.alert_type,
+    alert.threshold,
+    alert.status,
+    alert.created_at
+  ) as SentimentAlert;
+}
+
+export function getSentimentAlertsByWallet(walletAddress: string): SentimentAlert[] {
+  const db = getDb();
+  const stmt = db.prepare(`
+    SELECT * FROM sentiment_alerts 
+    WHERE LOWER(wallet_address) = LOWER(?)
+    ORDER BY created_at DESC
+  `);
+  return stmt.all(walletAddress) as SentimentAlert[];
+}
+
+export function getActiveSentimentAlerts(): SentimentAlert[] {
+  const db = getDb();
+  const stmt = db.prepare(`SELECT * FROM sentiment_alerts WHERE status = 'ACTIVE'`);
+  return stmt.all() as SentimentAlert[];
+}
+
+export function getActiveSentimentAlertsByCoin(coinId: string): SentimentAlert[] {
+  const db = getDb();
+  const stmt = db.prepare(`SELECT * FROM sentiment_alerts WHERE status = 'ACTIVE' AND coin_id = ?`);
+  return stmt.all(coinId) as SentimentAlert[];
+}
+
+export function triggerSentimentAlert(alertId: string): SentimentAlert | null {
+  const db = getDb();
+  const stmt = db.prepare(`
+    UPDATE sentiment_alerts 
+    SET status = 'TRIGGERED', triggered_at = strftime('%s', 'now')
+    WHERE id = ? AND status = 'ACTIVE'
+    RETURNING *
+  `);
+  return stmt.get(alertId) as SentimentAlert | null;
+}
+
+export function deleteSentimentAlert(alertId: string): boolean {
+  const db = getDb();
+  const stmt = db.prepare(`DELETE FROM sentiment_alerts WHERE id = ?`);
+  return stmt.run(alertId).changes > 0;
 }

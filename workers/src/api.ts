@@ -21,9 +21,19 @@ import {
   getAlertsByWallet,
   getActiveAlerts,
   deleteAlert,
+  addTrackedToken,
+  removeTrackedToken,
+  getTrackedTokens,
+  createSentimentAlert,
+  getSentimentAlertsByWallet,
+  getActiveSentimentAlerts,
+  deleteSentimentAlert,
   type TelegramLink,
   type OffchainAlert,
+  type TrackedToken,
+  type SentimentAlert,
 } from "./db/client.js";
+import { searchTokens, getCoinGeckoId, fetchCoinList } from "./services/token-registry.js";
 
 const API_PORT = parseInt(process.env.PORT || process.env.WORKERS_API_PORT || "3001", 10);
 const API_SECRET = process.env.WORKERS_API_SECRET;
@@ -218,6 +228,122 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
 
       const deleted = deleteAlert(alertId);
       console.log(`[API] Deleted alert ${alertId.slice(0, 10)}...: ${deleted}`);
+      return sendJson(res, 200, { success: true, deleted });
+    }
+
+    // ============ Token Search & Tracking ============
+
+    // Search tokens (CoinGecko)
+    if (path === "/api/tokens/search" && method === "GET") {
+      const query = url.searchParams.get("q");
+      const limit = parseInt(url.searchParams.get("limit") || "20", 10);
+
+      if (!query || query.length < 2) {
+        return sendJson(res, 400, { error: "Query must be at least 2 characters" });
+      }
+
+      const results = await searchTokens(query, limit);
+      return sendJson(res, 200, { success: true, tokens: results });
+    }
+
+    // Get tracked tokens
+    if (path === "/api/tokens/tracked" && method === "GET") {
+      const tokens = getTrackedTokens();
+      return sendJson(res, 200, { success: true, tokens });
+    }
+
+    // Add tracked token
+    if (path === "/api/tokens/track" && method === "POST") {
+      const body = await parseBody(req);
+      const { coinId, symbol, name, walletAddress } = body;
+
+      if (!coinId || !symbol || !name) {
+        return sendJson(res, 400, { error: "coinId, symbol, and name required" });
+      }
+
+      const token = addTrackedToken(coinId, symbol, name, walletAddress || "user");
+      console.log(`[API] Added tracked token: ${symbol} (${coinId})`);
+      return sendJson(res, 200, { success: true, token });
+    }
+
+    // Remove tracked token
+    if (path === "/api/tokens/untrack" && method === "POST") {
+      const body = await parseBody(req);
+      const { coinId } = body;
+
+      if (!coinId) {
+        return sendJson(res, 400, { error: "coinId required" });
+      }
+
+      const removed = removeTrackedToken(coinId);
+      console.log(`[API] Removed tracked token: ${coinId}: ${removed}`);
+      return sendJson(res, 200, { success: true, removed });
+    }
+
+    // ============ Sentiment Alerts ============
+
+    // Create sentiment alert
+    if (path === "/api/sentiment-alerts/create" && method === "POST") {
+      const body = await parseBody(req);
+      const { walletAddress, coinId, symbol, alertType, threshold } = body;
+
+      if (!walletAddress || !coinId || !symbol || !alertType || threshold === undefined) {
+        return sendJson(res, 400, { 
+          error: "walletAddress, coinId, symbol, alertType, and threshold required" 
+        });
+      }
+
+      if (!["SENTIMENT_UP", "SENTIMENT_DOWN", "FEAR_GREED"].includes(alertType)) {
+        return sendJson(res, 400, { error: "alertType must be SENTIMENT_UP, SENTIMENT_DOWN, or FEAR_GREED" });
+      }
+
+      const alertKey = `${walletAddress}-${coinId}-${alertType}-${Date.now()}`;
+      const alertId = keccak256(stringToBytes(alertKey));
+
+      const alert = createSentimentAlert({
+        id: alertId,
+        wallet_address: walletAddress,
+        coin_id: coinId,
+        symbol: symbol.toUpperCase(),
+        alert_type: alertType,
+        threshold,
+        status: "ACTIVE",
+        created_at: Math.floor(Date.now() / 1000),
+      });
+
+      console.log(`[API] Created sentiment alert ${alertId.slice(0, 10)}... for ${symbol}`);
+      return sendJson(res, 200, { success: true, alert });
+    }
+
+    // Get sentiment alerts by wallet
+    if (path === "/api/sentiment-alerts" && method === "GET") {
+      const walletAddress = url.searchParams.get("wallet");
+
+      if (!walletAddress) {
+        return sendJson(res, 400, { error: "wallet query param required" });
+      }
+
+      const alerts = getSentimentAlertsByWallet(walletAddress);
+      return sendJson(res, 200, { success: true, alerts });
+    }
+
+    // Get all active sentiment alerts
+    if (path === "/api/sentiment-alerts/active" && method === "GET") {
+      const alerts = getActiveSentimentAlerts();
+      return sendJson(res, 200, { success: true, alerts, count: alerts.length });
+    }
+
+    // Delete sentiment alert
+    if (path === "/api/sentiment-alerts/delete" && method === "POST") {
+      const body = await parseBody(req);
+      const { alertId } = body;
+
+      if (!alertId) {
+        return sendJson(res, 400, { error: "alertId required" });
+      }
+
+      const deleted = deleteSentimentAlert(alertId);
+      console.log(`[API] Deleted sentiment alert ${alertId.slice(0, 10)}...: ${deleted}`);
       return sendJson(res, 200, { success: true, deleted });
     }
 
