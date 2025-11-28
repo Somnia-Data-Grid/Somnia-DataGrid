@@ -58,7 +58,9 @@ export function useTokenTracking() {
         setError(data.error || 'Search failed');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Search failed');
+      // Workers API not available - show error
+      console.error('Token search failed - is workers API running?', err);
+      setError('Workers API unavailable. Start workers with: cd workers && npm run dev');
     } finally {
       setIsSearching(false);
     }

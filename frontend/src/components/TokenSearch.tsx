@@ -19,6 +19,7 @@ export function TokenSearch({ onTokenSelect, walletAddress, showTrackedTokens = 
     searchResults,
     trackedTokens,
     isSearching,
+    error,
     searchTokens,
     fetchTrackedTokens,
     trackToken,
@@ -90,6 +91,13 @@ export function TokenSearch({ onTokenSelect, walletAddress, showTrackedTokens = 
         {isSearching && (
           <div className="absolute right-3 top-1/2 -translate-y-1/2">
             <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+
+        {/* Error message */}
+        {error && (
+          <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
+            ⚠️ {error}
           </div>
         )}
 

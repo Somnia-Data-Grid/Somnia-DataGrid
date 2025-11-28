@@ -57,6 +57,20 @@ export function SentimentDashboard() {
       {/* Tab Content */}
       {activeTab === 'overview' && (
         <>
+          {/* Setup notice when not connected */}
+          {!isConnected && (
+            <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 text-sm text-amber-700">
+              <p className="font-medium">⚠️ Sentiment streams not available</p>
+              <p className="mt-1">
+                To enable sentiment data, run the workers and register event schemas:
+              </p>
+              <ol className="mt-2 ml-4 list-decimal text-amber-600">
+                <li>cd workers && npm run register-sentiment-schemas</li>
+                <li>npm run dev (start workers)</li>
+              </ol>
+            </div>
+          )}
+
           {/* Fear & Greed + Sentiment Grid */}
           <div className="grid gap-6 lg:grid-cols-3">
             {/* Fear & Greed Gauge */}
@@ -73,8 +87,14 @@ export function SentimentDashboard() {
                   <h3 className="mb-3 text-sm font-semibold text-slate-700">Fear & Greed Index</h3>
                   <div className="flex h-32 items-center justify-center">
                     <div className="text-center text-sm text-slate-400">
-                      <div className="mb-2 h-6 w-6 mx-auto animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
-                      Loading...
+                      {isConnected ? (
+                        <>
+                          <div className="mb-2 h-6 w-6 mx-auto animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
+                          Waiting for data...
+                        </>
+                      ) : (
+                        <span>No data available</span>
+                      )}
                     </div>
                   </div>
                 </div>
