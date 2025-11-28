@@ -62,7 +62,19 @@ export async function createAlert({
  * Get all alerts for a wallet address
  */
 export async function getAlertsByWallet(walletAddress: string): Promise<OffchainAlert[]> {
-  const response = await fetch(`/api/alerts?wallet=${encodeURIComponent(walletAddress)}`);
+  // Use full URL for server-side calls (telegram webhook), relative for client-side
+  const baseUrl = typeof window === 'undefined' 
+    ? (process.env.WORKERS_API_URL || 'http://localhost:3001')
+    : '';
+  
+  const url = `${baseUrl}/api/alerts?wallet=${encodeURIComponent(walletAddress)}`;
+  
+  const headers: Record<string, string> = {};
+  if (typeof window === 'undefined' && process.env.WORKERS_API_SECRET) {
+    headers['x-api-secret'] = process.env.WORKERS_API_SECRET;
+  }
+  
+  const response = await fetch(url, { headers });
   const data = await response.json();
 
   if (!response.ok || !data.success) {

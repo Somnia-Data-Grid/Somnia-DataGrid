@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useSentimentSubscription } from "@/lib/hooks/useSentimentSubscription";
 import { FearGreedGauge } from "./FearGreedGauge";
 import { SentimentGrid } from "./SentimentCard";
-import { NewsTicker } from "./NewsTicker";
+
 import { TokenSearch } from "./TokenSearch";
 import { SentimentAlertManager } from "./SentimentAlertManager";
 import { CryptoPanicWidget } from "./CryptoPanicWidget";
@@ -12,7 +12,7 @@ import { CryptoPanicWidget } from "./CryptoPanicWidget";
 type Tab = 'overview' | 'tokens' | 'alerts';
 
 export function SentimentDashboard() {
-  const { fearGreed, sentiments, news, isConnected, error } = useSentimentSubscription();
+  const { fearGreed, sentiments, isConnected, error } = useSentimentSubscription();
   const [activeTab, setActiveTab] = useState<Tab>('overview');
 
   return (
@@ -108,11 +108,8 @@ export function SentimentDashboard() {
             </div>
           </div>
 
-          {/* News Section - Ticker + Live Widget */}
-          <div className="grid gap-6 lg:grid-cols-2">
-            <NewsTicker news={news} maxItems={10} />
-            <CryptoPanicWidget currencies="BTC,ETH,SOL,STT" />
-          </div>
+          {/* Live News Widget */}
+          <CryptoPanicWidget currencies="BTC,ETH,SOL,STT" />
         </>
       )}
 
