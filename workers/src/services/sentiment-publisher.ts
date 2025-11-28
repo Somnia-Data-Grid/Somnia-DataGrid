@@ -44,11 +44,11 @@ const somniaTestnet = {
   },
 } as const;
 
-// Config
-const FEAR_GREED_INTERVAL = 60 * 60 * 1000;      // Check every hour (publishes daily)
-const SENTIMENT_INTERVAL = 2 * 60 * 60 * 1000;   // Every 2 hours
-const NEWS_POLL_INTERVAL = 60 * 1000;            // Every 60 seconds
-const NEWS_AGG_INTERVAL = 10 * 60 * 1000;        // Every 10 minutes
+// Config - intervals in minutes (configurable via env)
+const FEAR_GREED_INTERVAL = parseInt(process.env.FEAR_GREED_INTERVAL_MIN || "60", 10) * 60 * 1000;      // Default: 60 min
+const SENTIMENT_INTERVAL = parseInt(process.env.SENTIMENT_INTERVAL_MIN || "120", 10) * 60 * 1000;       // Default: 120 min (2 hours)
+const NEWS_POLL_INTERVAL = parseInt(process.env.NEWS_POLL_INTERVAL_MIN || "30", 10) * 60 * 1000;        // Default: 30 min (CryptoPanic free tier: 100 req/month)
+const NEWS_AGG_INTERVAL = parseInt(process.env.NEWS_AGG_INTERVAL_MIN || "60", 10) * 60 * 1000;          // Default: 60 min
 
 const SENTIMENT_SYMBOLS = (process.env.SENTIMENT_SYMBOLS || "BTC,ETH,SOL").split(",").map(s => s.trim().toUpperCase());
 

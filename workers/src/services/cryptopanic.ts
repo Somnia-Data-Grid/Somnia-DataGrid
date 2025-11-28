@@ -17,7 +17,8 @@ import {
   computeSentimentScore 
 } from "../schemas/sentiment.js";
 
-const CRYPTOPANIC_API = "https://cryptopanic.com/api/v1/posts/";
+// CryptoPanic Developer API v2
+const CRYPTOPANIC_API = "https://cryptopanic.com/api/developer/v2/posts/";
 
 // Map common symbols to CryptoPanic currency codes
 const SYMBOL_TO_CURRENCY: Record<string, string> = {
