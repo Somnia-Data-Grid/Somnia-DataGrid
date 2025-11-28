@@ -73,8 +73,15 @@ function sendJson(res: ServerResponse, status: number, data: any) {
 
 function verifyAuth(req: IncomingMessage): boolean {
   if (!API_SECRET) return true; // No auth if secret not set
-  const auth = req.headers.authorization;
-  return auth === `Bearer ${API_SECRET}`;
+  
+  // Accept both Authorization header and x-api-secret header
+  const authHeader = req.headers.authorization;
+  const apiSecretHeader = req.headers["x-api-secret"];
+  
+  if (authHeader === `Bearer ${API_SECRET}`) return true;
+  if (apiSecretHeader === API_SECRET) return true;
+  
+  return false;
 }
 
 async function handleRequest(req: IncomingMessage, res: ServerResponse) {
