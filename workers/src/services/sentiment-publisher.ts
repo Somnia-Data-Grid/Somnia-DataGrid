@@ -1,23 +1,22 @@
 /**
  * Sentiment Publisher Service
- * 
+ *
  * Publishes sentiment data to Somnia Data Streams:
  * - Fear & Greed Index (daily)
  * - Token Crowd Sentiment (hourly)
  * - News Events (real-time)
  * - News Aggregates (every 5-10 mins)
- * 
- * Run alongside the price publisher.
+ *
+ * Uses shared transaction manager to avoid nonce conflicts with price publisher.
  */
 
-import { createPublicClient, createWalletClient, http, type Hex } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
-import { SDK, SchemaEncoder } from "@somnia-chain/streams";
-import { keccak256, toBytes } from "viem";
+import { type Hex } from "viem";
+import { SchemaEncoder } from "@somnia-chain/streams";
 
 import { fearGreedClient } from "./fear-greed.js";
 import { coingeckoSentimentClient } from "./coingecko-sentiment.js";
 import { cryptoPanicClient } from "./cryptopanic.js";
+import { initTxManager, getSDK, queueSetAndEmitEvents } from "./tx-manager.js";
 
 import {
   FEAR_GREED_SCHEMA,
@@ -34,53 +33,20 @@ import {
   type NewsAggregateData,
 } from "../schemas/sentiment.js";
 
-// Somnia Testnet Chain
-const somniaTestnet = {
-  id: 50312,
-  name: "Somnia Testnet",
-  nativeCurrency: { name: "STT", symbol: "STT", decimals: 18 },
-  rpcUrls: {
-    default: { http: ["https://dream-rpc.somnia.network"] },
-  },
-} as const;
-
 // Config - intervals in minutes (configurable via env)
-const FEAR_GREED_INTERVAL = parseInt(process.env.FEAR_GREED_INTERVAL_MIN || "60", 10) * 60 * 1000;      // Default: 60 min
-const SENTIMENT_INTERVAL = parseInt(process.env.SENTIMENT_INTERVAL_MIN || "120", 10) * 60 * 1000;       // Default: 120 min (2 hours)
-const NEWS_POLL_INTERVAL = parseInt(process.env.NEWS_POLL_INTERVAL_MIN || "30", 10) * 60 * 1000;        // Default: 30 min (CryptoPanic free tier: 100 req/month)
-const NEWS_AGG_INTERVAL = parseInt(process.env.NEWS_AGG_INTERVAL_MIN || "60", 10) * 60 * 1000;          // Default: 60 min
+const FEAR_GREED_INTERVAL = parseInt(process.env.FEAR_GREED_INTERVAL_MIN || "60", 10) * 60 * 1000;
+const SENTIMENT_INTERVAL = parseInt(process.env.SENTIMENT_INTERVAL_MIN || "120", 10) * 60 * 1000;
+const NEWS_POLL_INTERVAL = parseInt(process.env.NEWS_POLL_INTERVAL_MIN || "30", 10) * 60 * 1000;
+const NEWS_AGG_INTERVAL = parseInt(process.env.NEWS_AGG_INTERVAL_MIN || "60", 10) * 60 * 1000;
 
 const SENTIMENT_SYMBOLS = (process.env.SENTIMENT_SYMBOLS || "BTC,ETH,SOL").split(",").map(s => s.trim().toUpperCase());
 
-function getClients() {
-  const rpcUrl = process.env.RPC_URL || "https://dream-rpc.somnia.network";
-  const privateKey = process.env.PRIVATE_KEY;
-  
-  if (!privateKey) {
-    throw new Error("PRIVATE_KEY environment variable is required");
-  }
-
-  const account = privateKeyToAccount(privateKey as `0x${string}`);
-  
-  const publicClient = createPublicClient({
-    chain: somniaTestnet,
-    transport: http(rpcUrl),
-  });
-
-  const walletClient = createWalletClient({
-    account,
-    chain: somniaTestnet,
-    transport: http(rpcUrl),
-  });
-
-  return { publicClient, walletClient, account };
-}
-
 // ============ Fear & Greed Publisher ============
 
-async function publishFearGreed(sdk: SDK, data: FearGreedData): Promise<void> {
+async function publishFearGreed(data: FearGreedData): Promise<void> {
+  const sdk = getSDK();
   const encoder = new SchemaEncoder(FEAR_GREED_SCHEMA);
-  
+
   const schemaIdResult = await sdk.streams.computeSchemaId(FEAR_GREED_SCHEMA);
   if (schemaIdResult instanceof Error) throw schemaIdResult;
   const schemaId = schemaIdResult as `0x${string}`;
@@ -95,20 +61,22 @@ async function publishFearGreed(sdk: SDK, data: FearGreedData): Promise<void> {
 
   const dataId = `0x${Buffer.from("fear-greed-index").toString("hex").padEnd(64, "0")}` as Hex;
 
-  const result = await sdk.streams.setAndEmitEvents(
+  const result = await queueSetAndEmitEvents(
+    "fear-greed",
     [{ id: dataId, schemaId, data: encodedData }],
     [{ id: FEAR_GREED_EVENT_ID, argumentTopics: [], data: encodedData }]
   );
 
-  if (result instanceof Error) throw result;
+  if (!result) throw new Error("No transaction hash returned");
   console.log(`[Sentiment] ✓ Fear & Greed: ${data.score} (${data.zone})`);
 }
 
 // ============ Token Sentiment Publisher ============
 
-async function publishTokenSentiment(sdk: SDK, data: TokenSentimentData): Promise<void> {
+async function publishTokenSentiment(data: TokenSentimentData): Promise<void> {
+  const sdk = getSDK();
   const encoder = new SchemaEncoder(TOKEN_SENTIMENT_SCHEMA);
-  
+
   const schemaIdResult = await sdk.streams.computeSchemaId(TOKEN_SENTIMENT_SCHEMA);
   if (schemaIdResult instanceof Error) throw schemaIdResult;
   const schemaId = schemaIdResult as `0x${string}`;
@@ -125,20 +93,22 @@ async function publishTokenSentiment(sdk: SDK, data: TokenSentimentData): Promis
 
   const dataId = `0x${Buffer.from(`sentiment-${data.symbol.toLowerCase()}`).toString("hex").padEnd(64, "0")}` as Hex;
 
-  const result = await sdk.streams.setAndEmitEvents(
+  const result = await queueSetAndEmitEvents(
+    `sentiment-${data.symbol}`,
     [{ id: dataId, schemaId, data: encodedData }],
     [{ id: TOKEN_SENTIMENT_EVENT_ID, argumentTopics: [], data: encodedData }]
   );
 
-  if (result instanceof Error) throw result;
+  if (!result) throw new Error("No transaction hash returned");
   console.log(`[Sentiment] ✓ ${data.symbol}: ${data.upPercent / 100}% up, ${data.downPercent / 100}% down`);
 }
 
 // ============ News Event Publisher ============
 
-async function publishNewsEvent(sdk: SDK, data: NewsEventData): Promise<void> {
+async function publishNewsEvent(data: NewsEventData): Promise<void> {
+  const sdk = getSDK();
   const encoder = new SchemaEncoder(NEWS_EVENT_SCHEMA);
-  
+
   const schemaIdResult = await sdk.streams.computeSchemaId(NEWS_EVENT_SCHEMA);
   if (schemaIdResult instanceof Error) throw schemaIdResult;
   const schemaId = schemaIdResult as `0x${string}`;
@@ -157,20 +127,22 @@ async function publishNewsEvent(sdk: SDK, data: NewsEventData): Promise<void> {
     { name: "votesImp", value: data.votesImp.toString(), type: "uint16" },
   ]);
 
-  const result = await sdk.streams.setAndEmitEvents(
+  const result = await queueSetAndEmitEvents(
+    `news-${data.newsId.slice(0, 10)}`,
     [{ id: data.newsId, schemaId, data: encodedData }],
     [{ id: NEWS_EVENT_EVENT_ID, argumentTopics: [], data: encodedData }]
   );
 
-  if (result instanceof Error) throw result;
+  if (!result) throw new Error("No transaction hash returned");
   console.log(`[Sentiment] ✓ News: [${data.symbol}] ${data.title.slice(0, 50)}...`);
 }
 
 // ============ News Aggregate Publisher ============
 
-async function publishNewsAggregate(sdk: SDK, data: NewsAggregateData): Promise<void> {
+async function publishNewsAggregate(data: NewsAggregateData): Promise<void> {
+  const sdk = getSDK();
   const encoder = new SchemaEncoder(NEWS_AGG_SCHEMA);
-  
+
   const schemaIdResult = await sdk.streams.computeSchemaId(NEWS_AGG_SCHEMA);
   if (schemaIdResult instanceof Error) throw schemaIdResult;
   const schemaId = schemaIdResult as `0x${string}`;
@@ -187,12 +159,13 @@ async function publishNewsAggregate(sdk: SDK, data: NewsAggregateData): Promise<
 
   const dataId = `0x${Buffer.from(`news-agg-${data.symbol.toLowerCase()}`).toString("hex").padEnd(64, "0")}` as Hex;
 
-  const result = await sdk.streams.setAndEmitEvents(
+  const result = await queueSetAndEmitEvents(
+    `news-agg-${data.symbol}`,
     [{ id: dataId, schemaId, data: encodedData }],
     [{ id: NEWS_AGG_EVENT_ID, argumentTopics: [], data: encodedData }]
   );
 
-  if (result instanceof Error) throw result;
+  if (!result) throw new Error("No transaction hash returned");
   console.log(`[Sentiment] ✓ News Agg ${data.symbol}: score=${data.sentimentScore}, count=${data.newsCount}`);
 }
 
@@ -200,41 +173,40 @@ async function publishNewsAggregate(sdk: SDK, data: NewsAggregateData): Promise<
 
 let lastFearGreedScore: number | null = null;
 
-async function runFearGreedLoop(sdk: SDK) {
+async function runFearGreedLoop() {
   while (true) {
     try {
       const data = await fearGreedClient.fetchFearGreed();
       if (data && data.score !== lastFearGreedScore) {
-        await publishFearGreed(sdk, data);
+        await publishFearGreed(data);
         lastFearGreedScore = data.score;
       }
     } catch (error) {
-      console.error("[Sentiment] Fear & Greed error:", error);
+      console.error("[Sentiment] Fear & Greed error:", error instanceof Error ? error.message : error);
     }
     await new Promise(r => setTimeout(r, FEAR_GREED_INTERVAL));
   }
 }
 
-async function runSentimentLoop(sdk: SDK) {
+async function runSentimentLoop() {
   while (true) {
     try {
       const sentiments = await coingeckoSentimentClient.fetchSentimentBatch(SENTIMENT_SYMBOLS);
       for (const [symbol, data] of sentiments) {
         try {
-          await publishTokenSentiment(sdk, data);
-          await new Promise(r => setTimeout(r, 1000)); // Delay between publishes
+          await publishTokenSentiment(data);
         } catch (error) {
-          console.error(`[Sentiment] Failed to publish ${symbol}:`, error);
+          console.error(`[Sentiment] Failed to publish ${symbol}:`, error instanceof Error ? error.message : error);
         }
       }
     } catch (error) {
-      console.error("[Sentiment] Token sentiment error:", error);
+      console.error("[Sentiment] Token sentiment error:", error instanceof Error ? error.message : error);
     }
     await new Promise(r => setTimeout(r, SENTIMENT_INTERVAL));
   }
 }
 
-async function runNewsLoop(sdk: SDK) {
+async function runNewsLoop() {
   if (!cryptoPanicClient.isEnabled()) {
     console.log("[Sentiment] CryptoPanic disabled (no API key)");
     return;
@@ -242,43 +214,41 @@ async function runNewsLoop(sdk: SDK) {
 
   while (true) {
     try {
-      const news = await cryptoPanicClient.fetchNews({ 
+      const news = await cryptoPanicClient.fetchNews({
         currencies: SENTIMENT_SYMBOLS,
         filter: "hot",
       });
-      
-      for (const item of news.slice(0, 5)) { // Limit to 5 per poll
+
+      for (const item of news.slice(0, 5)) {
         try {
-          await publishNewsEvent(sdk, item);
-          await new Promise(r => setTimeout(r, 1000));
+          await publishNewsEvent(item);
         } catch (error) {
-          console.error("[Sentiment] Failed to publish news:", error);
+          console.error("[Sentiment] Failed to publish news:", error instanceof Error ? error.message : error);
         }
       }
     } catch (error) {
-      console.error("[Sentiment] News poll error:", error);
+      console.error("[Sentiment] News poll error:", error instanceof Error ? error.message : error);
     }
     await new Promise(r => setTimeout(r, NEWS_POLL_INTERVAL));
   }
 }
 
-async function runNewsAggLoop(sdk: SDK) {
+async function runNewsAggLoop() {
   if (!cryptoPanicClient.isEnabled()) return;
 
   while (true) {
     try {
       const aggregates = cryptoPanicClient.getAllAggregates(SENTIMENT_SYMBOLS, 60);
-      
+
       for (const [symbol, data] of aggregates) {
         try {
-          await publishNewsAggregate(sdk, data);
-          await new Promise(r => setTimeout(r, 1000));
+          await publishNewsAggregate(data);
         } catch (error) {
-          console.error(`[Sentiment] Failed to publish news agg ${symbol}:`, error);
+          console.error(`[Sentiment] Failed to publish news agg ${symbol}:`, error instanceof Error ? error.message : error);
         }
       }
     } catch (error) {
-      console.error("[Sentiment] News aggregate error:", error);
+      console.error("[Sentiment] News aggregate error:", error instanceof Error ? error.message : error);
     }
     await new Promise(r => setTimeout(r, NEWS_AGG_INTERVAL));
   }
@@ -291,25 +261,25 @@ export async function startSentimentPublisher() {
   console.log(`Symbols: ${SENTIMENT_SYMBOLS.join(", ")}`);
   console.log(`Fear & Greed: every ${FEAR_GREED_INTERVAL / 60000} min`);
   console.log(`Token Sentiment: every ${SENTIMENT_INTERVAL / 60000} min`);
-  console.log(`News Poll: every ${NEWS_POLL_INTERVAL / 1000}s`);
+  console.log(`News Poll: every ${NEWS_POLL_INTERVAL / 60000} min`);
   console.log(`News Aggregate: every ${NEWS_AGG_INTERVAL / 60000} min`);
   console.log("═".repeat(60));
 
   // Test connectivity
   const fgPing = await fearGreedClient.ping();
   const cpPing = cryptoPanicClient.isEnabled() ? await cryptoPanicClient.ping() : false;
-  
+
   console.log(`[Sentiment] Fear & Greed API: ${fgPing ? "✓ connected" : "✗ failed"}`);
   console.log(`[Sentiment] CryptoPanic API: ${cpPing ? "✓ connected" : "✗ disabled"}`);
 
-  const { publicClient, walletClient } = getClients();
-  const sdk = new SDK({ public: publicClient, wallet: walletClient });
+  // Initialize shared transaction manager (if not already done by price publisher)
+  initTxManager();
 
   // Start all loops concurrently
   await Promise.all([
-    runFearGreedLoop(sdk),
-    runSentimentLoop(sdk),
-    runNewsLoop(sdk),
-    runNewsAggLoop(sdk),
+    runFearGreedLoop(),
+    runSentimentLoop(),
+    runNewsLoop(),
+    runNewsAggLoop(),
   ]);
 }

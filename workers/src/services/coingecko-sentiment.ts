@@ -131,13 +131,14 @@ class CoinGeckoSentimentClient {
     const results = new Map<string, TokenSentimentData>();
 
     // Fetch sequentially to avoid rate limits
+    // CoinGecko free tier: 10-30 calls/min, detailed endpoint uses more credits
     for (const symbol of symbols) {
       const sentiment = await this.fetchSentiment(symbol);
       if (sentiment) {
         results.set(symbol, sentiment);
       }
-      // Small delay between requests
-      await new Promise(r => setTimeout(r, 500));
+      // Longer delay between requests to avoid 401 errors (2 seconds)
+      await new Promise(r => setTimeout(r, 2000));
     }
 
     return results;

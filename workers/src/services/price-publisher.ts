@@ -1,39 +1,22 @@
 /**
  * Price Publisher Service
- * 
+ *
  * Fetches prices from multiple sources and publishes to Somnia Data Streams:
  * - CoinGecko: BTC, ETH, USDC, USDT, ARB, SOL, etc.
  * - DIA Oracle: STT (Somnia native), SOMI, and fallback for others
- * 
+ *
  * Run with: npm run publisher
  * Run once: npm run publisher:once
  */
 
 import "dotenv/config";
-import { createPublicClient, createWalletClient, http, type Hex } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
-import { SDK, SchemaEncoder } from "@somnia-chain/streams";
-import { 
-  getDb, 
-  closeDb, 
-  insertPriceRecord 
-} from "../db/client.js";
+import { type Hex } from "viem";
+import { SchemaEncoder } from "@somnia-chain/streams";
+import { getDb, closeDb, insertPriceRecord } from "../db/client.js";
 import { coingeckoClient, COINGECKO_IDS } from "./coingecko.js";
 import { diaClient, DIA_ONLY_ASSETS, DIA_ASSET_KEYS } from "./dia.js";
 import { checkAndTriggerAlerts, getActiveAlertCount } from "./alert-checker.js";
-
-// Somnia Testnet Chain
-const somniaTestnet = {
-  id: 50312,
-  name: "Somnia Testnet",
-  nativeCurrency: { name: "STT", symbol: "STT", decimals: 18 },
-  rpcUrls: {
-    default: { http: ["https://dream-rpc.somnia.network"] },
-  },
-  blockExplorers: {
-    default: { name: "Somnia Explorer", url: "https://somnia-testnet.socialscan.io" },
-  },
-} as const;
+import { initTxManager, getSDK, queueSetAndEmitEvents } from "./tx-manager.js";
 
 // Schemas
 const PRICE_FEED_SCHEMA = "uint64 timestamp, string symbol, uint256 price, uint8 decimals, string source, address sourceAddress";
@@ -47,35 +30,10 @@ const DIA_ORACLE_ADDRESS = "0x9206296Ea3aEE3E6bdC07F7AaeF14DfCf33d865D" as const
 const PUBLISH_INTERVAL = parseInt(process.env.PUBLISH_INTERVAL_MS || "30000", 10);
 const SYMBOLS = (process.env.SYMBOLS || "BTC,ETH,USDC,USDT,STT").split(",").map(s => s.trim().toUpperCase());
 
-// Clients
-function getClients() {
-  const rpcUrl = process.env.RPC_URL || "https://dream-rpc.somnia.network";
-  const privateKey = process.env.PRIVATE_KEY;
-  
-  if (!privateKey) {
-    throw new Error("PRIVATE_KEY environment variable is required");
-  }
-
-  const account = privateKeyToAccount(privateKey as `0x${string}`);
-  
-  const publicClient = createPublicClient({
-    chain: somniaTestnet,
-    transport: http(rpcUrl),
-  });
-
-  const walletClient = createWalletClient({
-    account,
-    chain: somniaTestnet,
-    transport: http(rpcUrl),
-  });
-
-  return { publicClient, walletClient, account };
-}
-
 // Fetch prices from all sources
 async function fetchAllPrices(symbols: string[]): Promise<Map<string, { price: bigint; timestamp: bigint; source: string }>> {
   const results = new Map<string, { price: bigint; timestamp: bigint; source: string }>();
-  
+
   // Separate symbols by source
   const diaOnlySymbols = symbols.filter(s => DIA_ONLY_ASSETS.includes(s));
   const coingeckoSymbols = symbols.filter(s => COINGECKO_IDS[s] && !DIA_ONLY_ASSETS.includes(s));
@@ -136,7 +94,7 @@ async function fetchAllPrices(symbols: string[]): Promise<Map<string, { price: b
   return results;
 }
 
-// Check and trigger alerts (reads from blockchain)
+// Check and trigger alerts (reads from SQLite)
 async function checkAlerts(symbol: string, currentPrice: bigint): Promise<string[]> {
   try {
     return await checkAndTriggerAlerts(symbol, currentPrice);
@@ -149,7 +107,7 @@ async function checkAlerts(symbol: string, currentPrice: bigint): Promise<string
 // Publish prices to Somnia
 async function publishPrices(symbols: string[]): Promise<void> {
   console.log(`\n[Publisher] Fetching prices for ${symbols.join(", ")}...`);
-  
+
   // Log API status
   const keyStatus = coingeckoClient.getKeyStatus();
   if (keyStatus.total > 0) {
@@ -159,8 +117,7 @@ async function publishPrices(symbols: string[]): Promise<void> {
     console.log(`[Publisher] DIA Oracle: enabled`);
   }
 
-  const { publicClient, walletClient } = getClients();
-  const sdk = new SDK({ public: publicClient, wallet: walletClient });
+  const sdk = getSDK();
   const encoder = new SchemaEncoder(PRICE_FEED_SCHEMA);
 
   // Fetch all prices from all sources
@@ -172,12 +129,12 @@ async function publishPrices(symbols: string[]): Promise<void> {
   if (schemaIdResult instanceof Error) throw schemaIdResult;
   const schemaId = schemaIdResult as `0x${string}`;
 
-  // Publish each price
+  // Publish each price (queued to avoid nonce conflicts)
   for (const [symbol, { price, timestamp, source }] of prices) {
     try {
       const priceFormatted = (Number(price) / 10 ** PRICE_DECIMALS).toFixed(2);
       const sourceAddress = source === "DIA" ? DIA_ORACLE_ADDRESS : OFFCHAIN_SOURCE;
-      
+
       const encodedData = encoder.encodeData([
         { name: "timestamp", value: timestamp.toString(), type: "uint64" },
         { name: "symbol", value: symbol, type: "string" },
@@ -189,13 +146,15 @@ async function publishPrices(symbols: string[]): Promise<void> {
 
       const dataId = `0x${Buffer.from(`price-${symbol.toLowerCase()}`).toString("hex").padEnd(64, "0")}` as Hex;
 
-      const result = await sdk.streams.setAndEmitEvents(
+      // Use queued transaction to avoid nonce conflicts with other publishers
+      const result = await queueSetAndEmitEvents(
+        `price-${symbol}`,
         [{ id: dataId, schemaId, data: encodedData }],
         [{ id: PRICE_UPDATE_EVENT_ID, argumentTopics: [], data: encodedData }]
       );
 
-      if (result instanceof Error) throw result;
-      
+      if (!result) throw new Error("No transaction hash returned");
+
       console.log(`[Publisher] ✓ ${symbol}: $${priceFormatted} (${source})`);
 
       // Store in local DB for history
@@ -207,14 +166,15 @@ async function publishPrices(symbols: string[]): Promise<void> {
         timestamp: Number(timestamp),
       });
 
-      // Check alerts
-      const triggered = await checkAlerts(symbol, price);
-      if (triggered.length > 0) {
-        console.log(`[Publisher] 🔔 ${triggered.length} alert(s) triggered for ${symbol}`);
-      }
+      // Check alerts (non-blocking)
+      checkAlerts(symbol, price).then(triggered => {
+        if (triggered.length > 0) {
+          console.log(`[Publisher] 🔔 ${triggered.length} alert(s) triggered for ${symbol}`);
+        }
+      }).catch(err => {
+        console.error(`[Publisher] Alert check error for ${symbol}:`, err);
+      });
 
-      // Small delay between publishes
-      await new Promise(r => setTimeout(r, 500));
     } catch (error) {
       console.error(`[Publisher] ✗ ${symbol}:`, error instanceof Error ? error.message : error);
     }
@@ -224,37 +184,40 @@ async function publishPrices(symbols: string[]): Promise<void> {
 // Main loop
 async function main() {
   const runOnce = process.argv.includes("--once");
-  
+
   console.log("═".repeat(60));
   console.log("🚀 Somnia Price Publisher");
   console.log("═".repeat(60));
   console.log(`Symbols: ${SYMBOLS.join(", ")}`);
   console.log(`Interval: ${PUBLISH_INTERVAL / 1000}s`);
   console.log(`Mode: ${runOnce ? "Single run" : "Continuous"}`);
-  
+
   // Show source breakdown
   const cgSymbols = SYMBOLS.filter(s => COINGECKO_IDS[s] && !DIA_ONLY_ASSETS.includes(s));
   const diaSymbols = SYMBOLS.filter(s => DIA_ONLY_ASSETS.includes(s) || (!COINGECKO_IDS[s] && DIA_ASSET_KEYS[s]));
   const unsupported = SYMBOLS.filter(s => !COINGECKO_IDS[s] && !DIA_ASSET_KEYS[s]);
-  
+
   if (cgSymbols.length > 0) console.log(`  CoinGecko: ${cgSymbols.join(", ")}`);
   if (diaSymbols.length > 0) console.log(`  DIA Oracle: ${diaSymbols.join(", ")}`);
   if (unsupported.length > 0) console.log(`  ⚠️ Unsupported: ${unsupported.join(", ")}`);
   console.log("═".repeat(60));
 
+  // Initialize shared transaction manager
+  initTxManager();
+
   // Test connectivity
   const cgPing = await coingeckoClient.ping();
   const diaPing = diaClient.isEnabled() ? await diaClient.ping() : false;
-  
+
   console.log(`[Publisher] CoinGecko: ${cgPing ? "✓ connected" : "✗ failed"}`);
   if (diaClient.isEnabled()) {
     console.log(`[Publisher] DIA Oracle: ${diaPing ? "✓ connected" : "✗ failed"}`);
   }
 
-  // Check active alerts from blockchain
+  // Check active alerts count
   try {
-    const alertCount = await getActiveAlertCount();
-    console.log(`[Publisher] Active alerts on blockchain: ${alertCount}`);
+    const alertCount = getActiveAlertCount();
+    console.log(`[Publisher] Active alerts in DB: ${alertCount}`);
   } catch (error) {
     console.warn(`[Publisher] Could not fetch alert count:`, error instanceof Error ? error.message : error);
   }
@@ -270,7 +233,7 @@ async function main() {
 
   // Continuous loop
   let running = true;
-  
+
   process.on("SIGINT", () => {
     console.log("\n[Publisher] Shutting down...");
     running = false;
@@ -284,7 +247,7 @@ async function main() {
     } catch (error) {
       console.error("[Publisher] Error:", error);
     }
-    
+
     console.log(`[Publisher] Next update in ${PUBLISH_INTERVAL / 1000}s...`);
     await new Promise(r => setTimeout(r, PUBLISH_INTERVAL));
   }

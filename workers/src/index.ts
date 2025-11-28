@@ -15,6 +15,7 @@
 import "dotenv/config";
 import { getDb, closeDb } from "./db/client.js";
 import { startApi } from "./api.js";
+import { initTxManager } from "./services/tx-manager.js";
 
 // Re-export for use by other modules
 export * from "./db/client.js";
@@ -29,6 +30,10 @@ async function main() {
   // Initialize database
   console.log("[Main] Initializing database...");
   getDb();
+  
+  // Initialize shared transaction manager (prevents nonce conflicts)
+  console.log("[Main] Initializing transaction manager...");
+  initTxManager();
   
   // Start API server for frontend sync
   console.log("[Main] Starting API server...");

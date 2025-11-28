@@ -1,39 +1,28 @@
 /**
  * Alert Checker Service
- * 
+ *
  * Reads alerts from SQLite (off-chain) and checks them against current prices.
  * When triggered:
  * 1. Updates alert status in SQLite
  * 2. Emits AlertTriggeredV2 event on-chain (for WebSocket subscribers)
  * 3. Sends Telegram notification
- * 
+ *
  * This is much faster than reading from blockchain (~5ms vs ~2s)
  */
 
-import { createPublicClient, createWalletClient, http, type Hex, keccak256, toBytes } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
-import { SDK, SchemaEncoder } from "@somnia-chain/streams";
+import { type Hex, keccak256, toBytes } from "viem";
 import { waitForTransactionReceipt } from "viem/actions";
-import { 
-  getActiveAlertsByAsset, 
+import { SchemaEncoder } from "@somnia-chain/streams";
+import {
+  getActiveAlertsByAsset,
   getActiveAlerts,
-  triggerAlert, 
+  triggerAlert,
   markAlertNotified,
-  getTelegramLink,
   logNotification,
-  type OffchainAlert 
+  type OffchainAlert
 } from "../db/client.js";
 import { sendAlertNotification } from "./telegram.js";
-
-// Somnia Testnet Chain
-const somniaTestnet = {
-  id: 50312,
-  name: "Somnia Testnet",
-  nativeCurrency: { name: "STT", symbol: "STT", decimals: 18 },
-  rpcUrls: {
-    default: { http: ["https://dream-rpc.somnia.network"] },
-  },
-} as const;
+import { getSDK, getPublicClient, queueEmitEvents } from "./tx-manager.js";
 
 // Event schema for broadcasting triggers (no data storage needed)
 const ALERT_TRIGGERED_EVENT_ID = "AlertTriggeredV2";
@@ -47,38 +36,14 @@ const triggeredAlertIds = new Set<string>();
 // Track if event schema is registered
 let eventSchemaRegistered = false;
 
-function getClients() {
-  const rpcUrl = process.env.RPC_URL || "https://dream-rpc.somnia.network";
-  const privateKey = process.env.PRIVATE_KEY;
-  
-  if (!privateKey) {
-    throw new Error("PRIVATE_KEY environment variable is required");
-  }
-
-  const account = privateKeyToAccount(privateKey as `0x${string}`);
-  
-  const publicClient = createPublicClient({
-    chain: somniaTestnet,
-    transport: http(rpcUrl),
-  });
-
-  const walletClient = createWalletClient({
-    account,
-    chain: somniaTestnet,
-    transport: http(rpcUrl),
-  });
-
-  return { publicClient, walletClient, account };
-}
-
 /**
  * Ensure the AlertTriggeredV2 event schema is registered on-chain
  */
 async function ensureEventSchemaRegistered(): Promise<void> {
   if (eventSchemaRegistered) return;
 
-  const { publicClient, walletClient } = getClients();
-  const sdk = new SDK({ public: publicClient, wallet: walletClient });
+  const sdk = getSDK();
+  const publicClient = getPublicClient();
 
   const eventSignature = `${ALERT_TRIGGERED_EVENT_ID}(bytes)`;
   const eventTopic = keccak256(toBytes(eventSignature));
@@ -128,19 +93,15 @@ async function ensureEventSchemaRegistered(): Promise<void> {
 }
 
 /**
- * Emit alert triggered event on-chain (for WebSocket subscribers)
- * This does NOT store data - just broadcasts the event
+ * Emit alert triggered event on-chain (queued to avoid nonce conflicts)
  */
 async function emitAlertTriggeredEvent(
-  alert: OffchainAlert, 
+  alert: OffchainAlert,
   currentPrice: bigint
 ): Promise<Hex | null> {
   await ensureEventSchemaRegistered();
 
-  const { publicClient, walletClient, account } = getClients();
-  const sdk = new SDK({ public: publicClient, wallet: walletClient });
   const encoder = new SchemaEncoder(ALERT_EVENT_SCHEMA);
-
   const now = BigInt(Math.floor(Date.now() / 1000));
 
   const encoded = encoder.encodeData([
@@ -154,26 +115,21 @@ async function emitAlertTriggeredEvent(
   ]);
 
   try {
-    // Only emit event - no data storage
-    const result = await sdk.streams.emitEvents([
-      {
+    // Use queued transaction to avoid nonce conflicts
+    const result = await queueEmitEvents(
+      `alert-${alert.id.slice(0, 10)}`,
+      [{
         id: ALERT_TRIGGERED_EVENT_ID,
         argumentTopics: [],
         data: encoded,
-      },
-    ]);
-
-    if (result instanceof Error) {
-      throw result;
-    }
+      }]
+    );
 
     if (result) {
-      await waitForTransactionReceipt(publicClient, { hash: result });
       console.log(`[AlertChecker] Event emitted for ${alert.id.slice(0, 10)}...`);
-      return result;
     }
 
-    return null;
+    return result;
   } catch (error) {
     console.error(`[AlertChecker] Failed to emit event:`, error);
     return null;
@@ -185,7 +141,7 @@ async function emitAlertTriggeredEvent(
  * Uses SQLite for fast lookups (~5ms vs ~2s from blockchain)
  */
 export async function checkAndTriggerAlerts(
-  symbol: string, 
+  symbol: string,
   currentPrice: bigint
 ): Promise<string[]> {
   // Get active alerts for this symbol from SQLite (fast!)
@@ -204,9 +160,9 @@ export async function checkAndTriggerAlerts(
     if (shouldTrigger) {
       const priceFormatted = (Number(currentPrice) / 10 ** PRICE_DECIMALS).toFixed(2);
       const thresholdFormatted = (Number(thresholdPrice) / 10 ** PRICE_DECIMALS).toFixed(2);
-      
-      console.log(`[AlertChecker] 🔔 Alert triggered: ${alert.asset} ${alert.condition} $${thresholdFormatted} (current: $${priceFormatted})`);
-      
+
+      console.log(`[AlertChecker] 🔔 Alert triggered: ${alert.asset} ${alert.condition} ${thresholdFormatted} (current: ${priceFormatted})`);
+
       // Mark as triggered to avoid duplicates
       triggeredAlertIds.add(alert.id);
       triggered.push(alert.id);
@@ -218,28 +174,26 @@ export async function checkAndTriggerAlerts(
         continue;
       }
 
-      // Emit event on-chain for WebSocket subscribers (fire and forget)
+      // Emit event on-chain (queued, non-blocking)
       emitAlertTriggeredEvent(alert, currentPrice).catch(err => {
         console.error(`[AlertChecker] Event emission failed:`, err);
       });
 
-      // Send Telegram notification
-      try {
-        const sent = await sendAlertNotification({
-          alertId: alert.id,
-          walletAddress: alert.wallet_address,
-          asset: alert.asset,
-          condition: alert.condition,
-          thresholdPrice: alert.threshold_price,
-          currentPrice: currentPrice.toString(),
-          decimals: PRICE_DECIMALS,
-        });
-        
+      // Send Telegram notification (non-blocking)
+      sendAlertNotification({
+        alertId: alert.id,
+        walletAddress: alert.wallet_address,
+        asset: alert.asset,
+        condition: alert.condition,
+        thresholdPrice: alert.threshold_price,
+        currentPrice: currentPrice.toString(),
+        decimals: PRICE_DECIMALS,
+      }).then(sent => {
         if (sent) {
           markAlertNotified(alert.id);
           console.log(`[AlertChecker] ✅ Notification sent for ${alert.id.slice(0, 10)}...`);
         }
-      } catch (error) {
+      }).catch(error => {
         console.error(`[AlertChecker] Failed to send notification:`, error);
         logNotification(
           alert.id,
@@ -249,7 +203,7 @@ export async function checkAndTriggerAlerts(
           "failed",
           error instanceof Error ? error.message : "Unknown error"
         );
-      }
+      });
     }
   }
 

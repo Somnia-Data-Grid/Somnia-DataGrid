@@ -45,35 +45,47 @@ const SYMBOL_TO_CURRENCY: Record<string, string> = {
   SEI: "SEI",
 };
 
+// CryptoPanic v2 API response types
+interface CryptoPanicVotes {
+  positive?: number;
+  negative?: number;
+  important?: number;
+  liked?: number;
+  disliked?: number;
+  lol?: number;
+  toxic?: number;
+  saved?: number;
+  comments?: number;
+}
+
 interface CryptoPanicPost {
   id: number;
+  slug?: string;
   title: string;
   url: string;
+  original_url?: string;
   source: {
     title: string;
     domain: string;
+    region?: string;
+    type?: string;
   };
   created_at: string;
+  published_at?: string;
   currencies?: Array<{
     code: string;
     title: string;
+    slug?: string;
   }>;
-  votes: {
-    positive: number;
-    negative: number;
-    important: number;
-    liked: number;
-    disliked: number;
-    lol: number;
-    toxic: number;
-    saved: number;
-    comments: number;
-  };
-  kind: "news" | "media";
+  instruments?: Array<{
+    code: string;
+    title: string;
+  }>;
+  votes?: CryptoPanicVotes;
+  kind: "news" | "media" | "blog" | "twitter" | "reddit";
 }
 
 interface CryptoPanicResponse {
-  count: number;
   next: string | null;
   previous: string | null;
   results: CryptoPanicPost[];
@@ -96,25 +108,29 @@ class CryptoPanicClient {
     return Boolean(this.apiKey);
   }
 
-  private determineSentiment(votes: CryptoPanicPost["votes"]): NewsSentiment {
-    const positive = votes.positive + votes.liked;
-    const negative = votes.negative + votes.disliked + votes.toxic;
+  private determineSentiment(votes?: CryptoPanicVotes): NewsSentiment {
+    if (!votes) return "neutral";
+    
+    const positive = (votes.positive ?? 0) + (votes.liked ?? 0);
+    const negative = (votes.negative ?? 0) + (votes.disliked ?? 0) + (votes.toxic ?? 0);
     
     if (positive > negative * 1.5) return "positive";
     if (negative > positive * 1.5) return "negative";
     return "neutral";
   }
 
-  private determineImpact(votes: CryptoPanicPost["votes"], sentiment: NewsSentiment): NewsImpact {
-    const totalVotes = votes.positive + votes.negative + votes.important + votes.liked + votes.disliked;
+  private determineImpact(votes?: CryptoPanicVotes, sentiment?: NewsSentiment): NewsImpact {
+    if (!votes) return "none";
     
-    if (votes.important > 5 || totalVotes > 50) {
+    const totalVotes = (votes.positive ?? 0) + (votes.negative ?? 0) + (votes.important ?? 0) + (votes.liked ?? 0) + (votes.disliked ?? 0);
+    
+    if ((votes.important ?? 0) > 5 || totalVotes > 50) {
       return "important";
     }
-    if (sentiment === "positive" && votes.positive > 10) {
+    if (sentiment === "positive" && (votes.positive ?? 0) > 10) {
       return "bullish";
     }
-    if (sentiment === "negative" && votes.negative > 10) {
+    if (sentiment === "negative" && (votes.negative ?? 0) > 10) {
       return "bearish";
     }
     return "none";
@@ -165,26 +181,32 @@ class CryptoPanicClient {
         // Skip if already seen
         if (post.id <= this.lastSeenId) continue;
 
-        // Get primary currency (first one)
-        const primaryCurrency = post.currencies?.[0]?.code || "CRYPTO";
+        // Get primary currency (from currencies or instruments array)
+        const primaryCurrency = post.currencies?.[0]?.code || post.instruments?.[0]?.code || "CRYPTO";
         const sentiment = this.determineSentiment(post.votes);
         const impact = this.determineImpact(post.votes, sentiment);
 
         // Generate unique ID from post ID
         const newsId = keccak256(toBytes(`cryptopanic-${post.id}`)) as `0x${string}`;
 
+        // Safely get vote counts with defaults
+        const votes = post.votes ?? {};
+        const votesPos = Math.min((votes.positive ?? 0) + (votes.liked ?? 0), 65535);
+        const votesNeg = Math.min((votes.negative ?? 0) + (votes.disliked ?? 0), 65535);
+        const votesImp = Math.min(votes.important ?? 0, 65535);
+
         const newsEvent: NewsEventData = {
           newsId,
-          timestamp: BigInt(Math.floor(new Date(post.created_at).getTime() / 1000)),
+          timestamp: BigInt(Math.floor(new Date(post.published_at || post.created_at).getTime() / 1000)),
           symbol: primaryCurrency,
           title: post.title.slice(0, 200), // Limit title length
-          url: post.url,
+          url: post.original_url || post.url,
           source: post.source.domain,
           sentiment,
           impact,
-          votesPos: Math.min(post.votes.positive + post.votes.liked, 65535),
-          votesNeg: Math.min(post.votes.negative + post.votes.disliked, 65535),
-          votesImp: Math.min(post.votes.important, 65535),
+          votesPos,
+          votesNeg,
+          votesImp,
         };
 
         results.push(newsEvent);
