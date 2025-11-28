@@ -1,0 +1,153 @@
+/**
+ * CoinGecko Sentiment Client
+ * 
+ * Fetches token sentiment data (up/down votes) from CoinGecko.
+ * Uses the same API keys as the price client.
+ * 
+ * Update frequency: Every 1-6 hours (votes change slowly)
+ */
+
+import { type TokenSentimentData, computeSentimentScore } from "../schemas/sentiment.js";
+import { COINGECKO_IDS } from "./coingecko.js";
+
+const COINGECKO_API_BASE = "https://api.coingecko.com/api/v3";
+
+interface CoinGeckoDetailResponse {
+  id: string;
+  symbol: string;
+  sentiment_votes_up_percentage: number | null;
+  sentiment_votes_down_percentage: number | null;
+  community_data?: {
+    twitter_followers?: number;
+    reddit_subscribers?: number;
+  };
+}
+
+class CoinGeckoSentimentClient {
+  private apiKeys: string[] = [];
+  private currentKeyIndex = 0;
+  private cache = new Map<string, { data: TokenSentimentData; fetchedAt: number }>();
+  private cacheDuration = 60 * 60 * 1000; // 1 hour cache
+
+  constructor() {
+    this.loadApiKeys();
+  }
+
+  private loadApiKeys() {
+    const keys = [
+      process.env.COINGECKO_API_KEY_1,
+      process.env.COINGECKO_API_KEY_2,
+      process.env.COINGECKO_API_KEY_3,
+    ].filter((key): key is string => Boolean(key));
+
+    this.apiKeys = keys;
+  }
+
+  private getNextKey(): string | null {
+    if (this.apiKeys.length === 0) return null;
+    const key = this.apiKeys[this.currentKeyIndex];
+    this.currentKeyIndex = (this.currentKeyIndex + 1) % this.apiKeys.length;
+    return key;
+  }
+
+  async fetchSentiment(symbol: string): Promise<TokenSentimentData | null> {
+    const coinId = COINGECKO_IDS[symbol.toUpperCase()];
+    if (!coinId) {
+      console.warn(`[CGSentiment] No CoinGecko ID for ${symbol}`);
+      return null;
+    }
+
+    // Check cache
+    const cached = this.cache.get(symbol);
+    if (cached && Date.now() - cached.fetchedAt < this.cacheDuration) {
+      console.log(`[CGSentiment] Returning cached sentiment for ${symbol}`);
+      return cached.data;
+    }
+
+    try {
+      const apiKey = this.getNextKey();
+      const url = new URL(`${COINGECKO_API_BASE}/coins/${coinId}`);
+      url.searchParams.set("localization", "false");
+      url.searchParams.set("tickers", "false");
+      url.searchParams.set("market_data", "false");
+      url.searchParams.set("community_data", "true");
+      url.searchParams.set("developer_data", "false");
+
+      if (apiKey) {
+        url.searchParams.set("x_cg_demo_api_key", apiKey);
+      }
+
+      console.log(`[CGSentiment] Fetching sentiment for ${symbol}...`);
+
+      const response = await fetch(url.toString(), {
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+
+      if (response.status === 429) {
+        console.warn(`[CGSentiment] Rate limited for ${symbol}`);
+        return cached?.data ?? null;
+      }
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      const data: CoinGeckoDetailResponse = await response.json();
+
+      const upPercent = data.sentiment_votes_up_percentage ?? 50;
+      const downPercent = data.sentiment_votes_down_percentage ?? 50;
+      
+      // Estimate sample size from community data
+      const sampleSize = Math.min(
+        (data.community_data?.twitter_followers ?? 0) + 
+        (data.community_data?.reddit_subscribers ?? 0),
+        65535 // uint16 max
+      );
+
+      const result: TokenSentimentData = {
+        timestamp: BigInt(Math.floor(Date.now() / 1000)),
+        symbol: symbol.toUpperCase(),
+        upPercent: Math.round(upPercent * 100), // Convert to basis points
+        downPercent: Math.round(downPercent * 100),
+        netScore: Math.round((upPercent - downPercent) * 100),
+        sampleSize,
+        source: "COINGECKO",
+      };
+
+      // Cache result
+      this.cache.set(symbol, { data: result, fetchedAt: Date.now() });
+
+      console.log(`[CGSentiment] ${symbol}: ${upPercent}% up, ${downPercent}% down`);
+      return result;
+
+    } catch (error) {
+      console.error(`[CGSentiment] Failed for ${symbol}:`, error instanceof Error ? error.message : error);
+      return cached?.data ?? null;
+    }
+  }
+
+  async fetchSentimentBatch(symbols: string[]): Promise<Map<string, TokenSentimentData>> {
+    const results = new Map<string, TokenSentimentData>();
+
+    // Fetch sequentially to avoid rate limits
+    for (const symbol of symbols) {
+      const sentiment = await this.fetchSentiment(symbol);
+      if (sentiment) {
+        results.set(symbol, sentiment);
+      }
+      // Small delay between requests
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    return results;
+  }
+
+  // Get supported symbols
+  getSupportedSymbols(): string[] {
+    return Object.keys(COINGECKO_IDS);
+  }
+}
+
+// Singleton
+export const coingeckoSentimentClient = new CoinGeckoSentimentClient();

@@ -1,8 +1,9 @@
 /**
- * Somnia DeFi Workers
+ * Somnia DataGrid Workers
  * 
  * Background services for:
  * - Price publishing to Somnia Data Streams
+ * - Sentiment publishing (Fear/Greed, Token Sentiment, News)
  * - Alert checking and triggering
  * - Telegram notifications
  * - API for syncing data with frontend
@@ -18,10 +19,11 @@ import { startApi } from "./api.js";
 // Re-export for use by other modules
 export * from "./db/client.js";
 export * from "./services/telegram.js";
+export * from "./schemas/sentiment.js";
 
 async function main() {
   console.log("═".repeat(60));
-  console.log("🚀 Somnia DeFi Workers");
+  console.log("🚀 Somnia DataGrid Workers");
   console.log("═".repeat(60));
   
   // Initialize database
@@ -32,9 +34,29 @@ async function main() {
   console.log("[Main] Starting API server...");
   startApi();
   
-  // Import and run price publisher
-  console.log("[Main] Starting price publisher...");
-  await import("./services/price-publisher.js");
+  // Check which publishers to run
+  const enablePrices = process.env.ENABLE_PRICES !== "false";
+  const enableSentiment = process.env.ENABLE_SENTIMENT !== "false";
+
+  // Start price publisher
+  if (enablePrices) {
+    console.log("[Main] Starting price publisher...");
+    import("./services/price-publisher.js").catch(err => {
+      console.error("[Main] Price publisher failed:", err);
+    });
+  }
+
+  // Start sentiment publisher
+  if (enableSentiment) {
+    console.log("[Main] Starting sentiment publisher...");
+    import("./services/sentiment-publisher.js").then(mod => {
+      mod.startSentimentPublisher().catch(err => {
+        console.error("[Main] Sentiment publisher failed:", err);
+      });
+    }).catch(err => {
+      console.error("[Main] Failed to load sentiment publisher:", err);
+    });
+  }
 }
 
 // Graceful shutdown
