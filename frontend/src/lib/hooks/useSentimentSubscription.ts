@@ -10,9 +10,6 @@ import {
   TOKEN_SENTIMENT_EVENT_ID,
   NEWS_EVENT_SCHEMA,
   NEWS_EVENT_EVENT_ID,
-  type FearGreedData,
-  type TokenSentimentData,
-  type NewsEventData,
   type FearGreedZone,
   type NewsSentiment,
   type NewsImpact,
@@ -22,6 +19,7 @@ import { extractFieldValue } from "../utils/streams";
 
 const FALLBACK_WS = "wss://dream-rpc.somnia.network/ws";
 const MAX_NEWS_ITEMS = 50;
+const API_BASE = process.env.NEXT_PUBLIC_WORKERS_API_URL || 'http://localhost:3001';
 
 function createWsClient() {
   const url = process.env.NEXT_PUBLIC_WEBSOCKET_URL ?? FALLBACK_WS;
@@ -73,6 +71,71 @@ export function useSentimentSubscription() {
   const fearGreedEncoder = useMemo(() => new SchemaEncoder(FEAR_GREED_SCHEMA), []);
   const sentimentEncoder = useMemo(() => new SchemaEncoder(TOKEN_SENTIMENT_SCHEMA), []);
   const newsEncoder = useMemo(() => new SchemaEncoder(NEWS_EVENT_SCHEMA), []);
+
+  // Fetch cached data from API on mount
+  useEffect(() => {
+    async function fetchCachedData() {
+      try {
+        const res = await fetch(`${API_BASE}/api/sentiment`);
+        if (!res.ok) return;
+        
+        const data = await res.json();
+        if (!data.success) return;
+
+        // Load cached Fear & Greed
+        if (data.fearGreed) {
+          setFearGreed({
+            score: data.fearGreed.score,
+            zone: data.fearGreed.zone as FearGreedZone,
+            source: data.fearGreed.source,
+            timestamp: data.fearGreed.timestamp,
+            nextUpdate: data.fearGreed.next_update || 0,
+          });
+        }
+
+        // Load cached token sentiments
+        if (data.sentiments && data.sentiments.length > 0) {
+          const map = new Map<string, UiTokenSentiment>();
+          for (const s of data.sentiments) {
+            map.set(s.symbol, {
+              symbol: s.symbol,
+              upPercent: s.up_percent / 100,
+              downPercent: s.down_percent / 100,
+              netScore: s.net_score / 100,
+              sampleSize: s.sample_size,
+              source: s.source,
+              timestamp: s.timestamp,
+            });
+          }
+          setSentiments(map);
+        }
+
+        // Load cached news
+        if (data.news && data.news.length > 0) {
+          const newsItems: UiNewsEvent[] = data.news.map((n: any) => ({
+            newsId: n.news_id,
+            symbol: n.symbol,
+            title: n.title,
+            url: n.url,
+            source: n.source,
+            sentiment: n.sentiment as NewsSentiment,
+            impact: n.impact as NewsImpact,
+            votesPos: n.votes_pos,
+            votesNeg: n.votes_neg,
+            votesImp: n.votes_imp,
+            timestamp: n.timestamp,
+          }));
+          setNews(newsItems);
+        }
+
+        console.log("[Sentiment] Loaded cached data from API");
+      } catch (err) {
+        console.log("[Sentiment] Could not fetch cached data:", err);
+      }
+    }
+
+    fetchCachedData();
+  }, []);
 
   type DecodedFields = ReturnType<SchemaEncoder["decodeData"]>;
 

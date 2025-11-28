@@ -389,3 +389,121 @@ export function deleteSentimentAlert(alertId: string): boolean {
   const stmt = db.prepare(`DELETE FROM sentiment_alerts WHERE id = ?`);
   return stmt.run(alertId).changes > 0;
 }
+
+// ============ Sentiment Cache ============
+
+export interface FearGreedCache {
+  score: number;
+  zone: string;
+  source: string;
+  timestamp: number;
+  next_update: number | null;
+}
+
+export interface TokenSentimentCache {
+  symbol: string;
+  up_percent: number;
+  down_percent: number;
+  net_score: number;
+  sample_size: number;
+  source: string;
+  timestamp: number;
+}
+
+export interface NewsCache {
+  news_id: string;
+  symbol: string;
+  title: string;
+  url: string;
+  source: string;
+  sentiment: string;
+  impact: string;
+  votes_pos: number;
+  votes_neg: number;
+  votes_imp: number;
+  timestamp: number;
+}
+
+export function upsertFearGreed(data: FearGreedCache): void {
+  const db = getDb();
+  const stmt = db.prepare(`
+    INSERT INTO fear_greed_cache (id, score, zone, source, timestamp, next_update)
+    VALUES (1, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      score = excluded.score,
+      zone = excluded.zone,
+      source = excluded.source,
+      timestamp = excluded.timestamp,
+      next_update = excluded.next_update,
+      updated_at = strftime('%s', 'now')
+  `);
+  stmt.run(data.score, data.zone, data.source, data.timestamp, data.next_update);
+}
+
+export function getFearGreed(): FearGreedCache | null {
+  const db = getDb();
+  const stmt = db.prepare(`SELECT score, zone, source, timestamp, next_update FROM fear_greed_cache WHERE id = 1`);
+  return stmt.get() as FearGreedCache | null;
+}
+
+export function upsertTokenSentiment(data: TokenSentimentCache): void {
+  const db = getDb();
+  const stmt = db.prepare(`
+    INSERT INTO token_sentiment_cache (symbol, up_percent, down_percent, net_score, sample_size, source, timestamp)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(symbol) DO UPDATE SET
+      up_percent = excluded.up_percent,
+      down_percent = excluded.down_percent,
+      net_score = excluded.net_score,
+      sample_size = excluded.sample_size,
+      source = excluded.source,
+      timestamp = excluded.timestamp,
+      updated_at = strftime('%s', 'now')
+  `);
+  stmt.run(data.symbol.toUpperCase(), data.up_percent, data.down_percent, data.net_score, data.sample_size, data.source, data.timestamp);
+}
+
+export function getTokenSentiment(symbol: string): TokenSentimentCache | null {
+  const db = getDb();
+  const stmt = db.prepare(`SELECT * FROM token_sentiment_cache WHERE UPPER(symbol) = UPPER(?)`);
+  return stmt.get(symbol) as TokenSentimentCache | null;
+}
+
+export function getAllTokenSentiments(): TokenSentimentCache[] {
+  const db = getDb();
+  const stmt = db.prepare(`SELECT * FROM token_sentiment_cache ORDER BY symbol`);
+  return stmt.all() as TokenSentimentCache[];
+}
+
+export function upsertNews(data: NewsCache): void {
+  const db = getDb();
+  const stmt = db.prepare(`
+    INSERT INTO news_cache (news_id, symbol, title, url, source, sentiment, impact, votes_pos, votes_neg, votes_imp, timestamp)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(news_id) DO UPDATE SET
+      votes_pos = excluded.votes_pos,
+      votes_neg = excluded.votes_neg,
+      votes_imp = excluded.votes_imp
+  `);
+  stmt.run(data.news_id, data.symbol, data.title, data.url, data.source, data.sentiment, data.impact, data.votes_pos, data.votes_neg, data.votes_imp, data.timestamp);
+}
+
+export function getRecentNews(limit: number = 20): NewsCache[] {
+  const db = getDb();
+  const stmt = db.prepare(`SELECT * FROM news_cache ORDER BY timestamp DESC LIMIT ?`);
+  return stmt.all(limit) as NewsCache[];
+}
+
+export function getNewsBySymbol(symbol: string, limit: number = 10): NewsCache[] {
+  const db = getDb();
+  const stmt = db.prepare(`SELECT * FROM news_cache WHERE UPPER(symbol) = UPPER(?) ORDER BY timestamp DESC LIMIT ?`);
+  return stmt.all(symbol, limit) as NewsCache[];
+}
+
+// Clean old news (keep last 7 days)
+export function cleanOldNews(): number {
+  const db = getDb();
+  const weekAgo = Math.floor(Date.now() / 1000) - (7 * 24 * 60 * 60);
+  const stmt = db.prepare(`DELETE FROM news_cache WHERE timestamp < ?`);
+  return stmt.run(weekAgo).changes;
+}

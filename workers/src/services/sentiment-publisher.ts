@@ -17,6 +17,12 @@ import { fearGreedClient } from "./fear-greed.js";
 import { coingeckoSentimentClient } from "./coingecko-sentiment.js";
 import { cryptoPanicClient } from "./cryptopanic.js";
 import { initTxManager, getSDK, queueSetAndEmitEvents } from "./tx-manager.js";
+import {
+  upsertFearGreed,
+  upsertTokenSentiment,
+  upsertNews,
+  cleanOldNews,
+} from "../db/client.js";
 
 import {
   FEAR_GREED_SCHEMA,
@@ -68,6 +74,16 @@ async function publishFearGreed(data: FearGreedData): Promise<void> {
   );
 
   if (!result) throw new Error("No transaction hash returned");
+  
+  // Cache in SQLite
+  upsertFearGreed({
+    score: data.score,
+    zone: data.zone,
+    source: data.source,
+    timestamp: Number(data.timestamp),
+    next_update: Number(data.nextUpdate),
+  });
+  
   console.log(`[Sentiment] ✓ Fear & Greed: ${data.score} (${data.zone})`);
 }
 
@@ -100,6 +116,18 @@ async function publishTokenSentiment(data: TokenSentimentData): Promise<void> {
   );
 
   if (!result) throw new Error("No transaction hash returned");
+  
+  // Cache in SQLite
+  upsertTokenSentiment({
+    symbol: data.symbol,
+    up_percent: data.upPercent,
+    down_percent: data.downPercent,
+    net_score: data.netScore,
+    sample_size: data.sampleSize,
+    source: data.source,
+    timestamp: Number(data.timestamp),
+  });
+  
   console.log(`[Sentiment] ✓ ${data.symbol}: ${data.upPercent / 100}% up, ${data.downPercent / 100}% down`);
 }
 
@@ -134,6 +162,22 @@ async function publishNewsEvent(data: NewsEventData): Promise<void> {
   );
 
   if (!result) throw new Error("No transaction hash returned");
+  
+  // Cache in SQLite
+  upsertNews({
+    news_id: data.newsId,
+    symbol: data.symbol,
+    title: data.title,
+    url: data.url,
+    source: data.source,
+    sentiment: data.sentiment,
+    impact: data.impact,
+    votes_pos: data.votesPos,
+    votes_neg: data.votesNeg,
+    votes_imp: data.votesImp,
+    timestamp: Number(data.timestamp),
+  });
+  
   console.log(`[Sentiment] ✓ News: [${data.symbol}] ${data.title.slice(0, 50)}...`);
 }
 

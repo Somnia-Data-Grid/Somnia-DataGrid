@@ -91,3 +91,46 @@ CREATE TABLE IF NOT EXISTS sentiment_alerts (
 CREATE INDEX IF NOT EXISTS idx_sentiment_alerts_wallet ON sentiment_alerts(wallet_address);
 CREATE INDEX IF NOT EXISTS idx_sentiment_alerts_status ON sentiment_alerts(status);
 CREATE INDEX IF NOT EXISTS idx_sentiment_alerts_coin ON sentiment_alerts(coin_id);
+
+
+-- Fear & Greed Cache (latest value)
+CREATE TABLE IF NOT EXISTS fear_greed_cache (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  score INTEGER NOT NULL,
+  zone TEXT NOT NULL,
+  source TEXT NOT NULL,
+  timestamp INTEGER NOT NULL,
+  next_update INTEGER,
+  updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+);
+
+-- Token Sentiment Cache (latest per symbol)
+CREATE TABLE IF NOT EXISTS token_sentiment_cache (
+  symbol TEXT PRIMARY KEY,
+  up_percent INTEGER NOT NULL,
+  down_percent INTEGER NOT NULL,
+  net_score INTEGER NOT NULL,
+  sample_size INTEGER NOT NULL,
+  source TEXT NOT NULL,
+  timestamp INTEGER NOT NULL,
+  updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+);
+
+-- News Cache (recent news items)
+CREATE TABLE IF NOT EXISTS news_cache (
+  news_id TEXT PRIMARY KEY,
+  symbol TEXT NOT NULL,
+  title TEXT NOT NULL,
+  url TEXT NOT NULL,
+  source TEXT NOT NULL,
+  sentiment TEXT NOT NULL,
+  impact TEXT NOT NULL,
+  votes_pos INTEGER DEFAULT 0,
+  votes_neg INTEGER DEFAULT 0,
+  votes_imp INTEGER DEFAULT 0,
+  timestamp INTEGER NOT NULL,
+  created_at INTEGER DEFAULT (strftime('%s', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_news_cache_symbol ON news_cache(symbol);
+CREATE INDEX IF NOT EXISTS idx_news_cache_timestamp ON news_cache(timestamp DESC);

@@ -28,6 +28,9 @@ import {
   getSentimentAlertsByWallet,
   getActiveSentimentAlerts,
   deleteSentimentAlert,
+  getFearGreed,
+  getAllTokenSentiments,
+  getRecentNews,
   type TelegramLink,
   type OffchainAlert,
   type TrackedToken,
@@ -345,6 +348,40 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       const deleted = deleteSentimentAlert(alertId);
       console.log(`[API] Deleted sentiment alert ${alertId.slice(0, 10)}...: ${deleted}`);
       return sendJson(res, 200, { success: true, deleted });
+    }
+
+    // ============ Sentiment Data (cached) ============
+
+    // Get cached Fear & Greed
+    if (path === "/api/sentiment/fear-greed" && method === "GET") {
+      const data = getFearGreed();
+      return sendJson(res, 200, { success: true, data });
+    }
+
+    // Get all cached token sentiments
+    if (path === "/api/sentiment/tokens" && method === "GET") {
+      const data = getAllTokenSentiments();
+      return sendJson(res, 200, { success: true, data });
+    }
+
+    // Get cached news
+    if (path === "/api/sentiment/news" && method === "GET") {
+      const limit = parseInt(url.searchParams.get("limit") || "20", 10);
+      const data = getRecentNews(Math.min(limit, 100));
+      return sendJson(res, 200, { success: true, data });
+    }
+
+    // Get all sentiment data in one call (for initial load)
+    if (path === "/api/sentiment" && method === "GET") {
+      const fearGreed = getFearGreed();
+      const sentiments = getAllTokenSentiments();
+      const news = getRecentNews(20);
+      return sendJson(res, 200, { 
+        success: true, 
+        fearGreed,
+        sentiments,
+        news,
+      });
     }
 
     // 404
