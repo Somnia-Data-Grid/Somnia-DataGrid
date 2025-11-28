@@ -24,6 +24,7 @@ import {
   cleanOldNews,
 } from "../db/client.js";
 import { checkSentimentAlerts, getActiveSentimentAlertCount } from "./sentiment-alert-checker.js";
+import { getTrackedTokens } from "../db/client.js";
 
 import {
   FEAR_GREED_SCHEMA,
@@ -46,7 +47,29 @@ const SENTIMENT_INTERVAL = parseInt(process.env.SENTIMENT_INTERVAL_MIN || "120",
 const NEWS_POLL_INTERVAL = parseInt(process.env.NEWS_POLL_INTERVAL_MIN || "30", 10) * 60 * 1000;
 const NEWS_AGG_INTERVAL = parseInt(process.env.NEWS_AGG_INTERVAL_MIN || "60", 10) * 60 * 1000;
 
-const SENTIMENT_SYMBOLS = (process.env.SENTIMENT_SYMBOLS || "BTC,ETH,SOL").split(",").map(s => s.trim().toUpperCase());
+// Get sentiment symbols - merges env defaults with user-tracked tokens
+function getSentimentSymbols(): string[] {
+  const symbols = new Set<string>();
+  
+  // Add env symbols as base (defaults)
+  const envSymbols = process.env.SENTIMENT_SYMBOLS;
+  if (envSymbols) {
+    envSymbols.split(",").forEach(s => symbols.add(s.trim().toUpperCase()));
+  } else {
+    // Default symbols if no env
+    ["BTC", "ETH", "SOL"].forEach(s => symbols.add(s));
+  }
+  
+  // Add all tracked tokens (system + user-added)
+  try {
+    const tracked = getTrackedTokens();
+    tracked.forEach(t => symbols.add(t.symbol.toUpperCase()));
+  } catch {
+    // DB not ready, use env/defaults only
+  }
+  
+  return Array.from(symbols);
+}
 
 // ============ Fear & Greed Publisher ============
 
@@ -242,7 +265,11 @@ async function runFearGreedLoop() {
 async function runSentimentLoop() {
   while (true) {
     try {
-      const sentiments = await coingeckoSentimentClient.fetchSentimentBatch(SENTIMENT_SYMBOLS);
+      // Get current symbols (includes user-added tokens)
+      const symbols = getSentimentSymbols();
+      console.log(`[Sentiment] Tracking ${symbols.length} tokens: ${symbols.join(", ")}`);
+      
+      const sentiments = await coingeckoSentimentClient.fetchSentimentBatch(symbols);
       for (const [symbol, data] of sentiments) {
         try {
           await publishTokenSentiment(data);
@@ -263,81 +290,42 @@ async function runSentimentLoop() {
   }
 }
 
+// News feeds disabled - CryptoPanic free tier is too limited
+// Widget still works for UI, but no on-chain news data
 async function runNewsLoop() {
-  if (!cryptoPanicClient.isEnabled()) {
-    console.log("[Sentiment] CryptoPanic disabled (no API key)");
-    return;
-  }
-
-  while (true) {
-    try {
-      const news = await cryptoPanicClient.fetchNews({
-        currencies: SENTIMENT_SYMBOLS,
-        filter: "hot",
-      });
-
-      for (const item of news.slice(0, 5)) {
-        try {
-          await publishNewsEvent(item);
-        } catch (error) {
-          console.error("[Sentiment] Failed to publish news:", error instanceof Error ? error.message : error);
-        }
-      }
-    } catch (error) {
-      console.error("[Sentiment] News poll error:", error instanceof Error ? error.message : error);
-    }
-    await new Promise(r => setTimeout(r, NEWS_POLL_INTERVAL));
-  }
+  console.log("[Sentiment] News feeds disabled - coming soon with better data source");
+  return;
 }
 
 async function runNewsAggLoop() {
-  if (!cryptoPanicClient.isEnabled()) return;
-
-  while (true) {
-    try {
-      const aggregates = cryptoPanicClient.getAllAggregates(SENTIMENT_SYMBOLS, 60);
-
-      for (const [symbol, data] of aggregates) {
-        try {
-          await publishNewsAggregate(data);
-        } catch (error) {
-          console.error(`[Sentiment] Failed to publish news agg ${symbol}:`, error instanceof Error ? error.message : error);
-        }
-      }
-    } catch (error) {
-      console.error("[Sentiment] News aggregate error:", error instanceof Error ? error.message : error);
-    }
-    await new Promise(r => setTimeout(r, NEWS_AGG_INTERVAL));
-  }
+  console.log("[Sentiment] News aggregates disabled - coming soon");
+  return;
 }
 
 export async function startSentimentPublisher() {
+  const symbols = getSentimentSymbols();
+  
   console.log("═".repeat(60));
   console.log("📊 Somnia DataGrid - Sentiment Publisher");
   console.log("═".repeat(60));
-  console.log(`Symbols: ${SENTIMENT_SYMBOLS.join(", ")}`);
+  console.log(`Symbols: ${symbols.join(", ")}`);
   console.log(`Fear & Greed: every ${FEAR_GREED_INTERVAL / 60000} min`);
   console.log(`Token Sentiment: every ${SENTIMENT_INTERVAL / 60000} min`);
-  console.log(`News Poll: every ${NEWS_POLL_INTERVAL / 60000} min`);
-  console.log(`News Aggregate: every ${NEWS_AGG_INTERVAL / 60000} min`);
   console.log("═".repeat(60));
 
   // Test connectivity
   const fgPing = await fearGreedClient.ping();
-  const cpPing = cryptoPanicClient.isEnabled() ? await cryptoPanicClient.ping() : false;
 
   console.log(`[Sentiment] Fear & Greed API: ${fgPing ? "✓ connected" : "✗ failed"}`);
-  console.log(`[Sentiment] CryptoPanic API: ${cpPing ? "✓ connected" : "✗ disabled"}`);
+  console.log(`[Sentiment] News feeds: Coming soon`);
   console.log(`[Sentiment] Active sentiment alerts: ${getActiveSentimentAlertCount()}`);
 
   // Initialize shared transaction manager (if not already done by price publisher)
   initTxManager();
 
-  // Start all loops concurrently
+  // Start all loops concurrently (news disabled for now)
   await Promise.all([
     runFearGreedLoop(),
     runSentimentLoop(),
-    runNewsLoop(),
-    runNewsAggLoop(),
   ]);
 }

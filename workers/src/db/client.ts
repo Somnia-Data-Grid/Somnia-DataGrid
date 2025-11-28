@@ -319,10 +319,11 @@ export function removeTrackedToken(coinId: string, wallet: string): boolean {
   return stmt.run(coinId, wallet).changes > 0;
 }
 
-// Get all tracked tokens (system + user's own)
+// Get all tracked tokens (system + user's own if wallet provided)
 export function getTrackedTokens(wallet?: string): TrackedToken[] {
   const db = getDb();
   if (wallet) {
+    // Return system tokens + this user's tokens
     const stmt = db.prepare(`
       SELECT * FROM tracked_tokens 
       WHERE is_active = 1 AND (added_by = 'system' OR LOWER(added_by) = LOWER(?))
@@ -330,8 +331,8 @@ export function getTrackedTokens(wallet?: string): TrackedToken[] {
     `);
     return stmt.all(wallet) as TrackedToken[];
   }
-  // No wallet = only system tokens
-  const stmt = db.prepare(`SELECT * FROM tracked_tokens WHERE is_active = 1 AND added_by = 'system' ORDER BY added_at`);
+  // No wallet = ALL active tokens (for sentiment publisher)
+  const stmt = db.prepare(`SELECT * FROM tracked_tokens WHERE is_active = 1 ORDER BY added_at`);
   return stmt.all() as TrackedToken[];
 }
 

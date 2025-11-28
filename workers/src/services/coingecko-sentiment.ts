@@ -12,6 +12,7 @@
 
 import { type TokenSentimentData } from "../schemas/sentiment.js";
 import { COINGECKO_IDS } from "./coingecko.js";
+import { getTrackedTokenBySymbol } from "../db/client.js";
 
 const COINGECKO_API_BASE = "https://api.coingecko.com/api/v3";
 
@@ -83,7 +84,22 @@ class CoinGeckoSentimentClient {
   }
 
   async fetchSentiment(symbol: string, retryCount = 0): Promise<TokenSentimentData | null> {
-    const coinId = COINGECKO_IDS[symbol.toUpperCase()];
+    // Try to get coin ID from: 1) hardcoded map, 2) tracked tokens DB
+    let coinId = COINGECKO_IDS[symbol.toUpperCase()];
+    
+    if (!coinId) {
+      // Check tracked tokens for user-added tokens
+      try {
+        const tracked = getTrackedTokenBySymbol(symbol);
+        if (tracked?.coin_id) {
+          coinId = tracked.coin_id;
+          console.log(`[CGSentiment] Found ${symbol} in tracked tokens: ${coinId}`);
+        }
+      } catch {
+        // DB not ready
+      }
+    }
+    
     if (!coinId) {
       console.warn(`[CGSentiment] No CoinGecko ID for ${symbol}`);
       return null;

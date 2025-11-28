@@ -53,29 +53,19 @@ uint64 timestamp, uint8 score, string zone, string source, uint64 nextUpdate
 
 **Source:** Alternative.me
 
-### 4. News Events (`NewsEventV1`)
+### 4. News Feeds (Coming Soon)
 
-Individual crypto news events with sentiment analysis.
+Real-time crypto news with sentiment analysis.
 
-**Schema:**
-```
-bytes32 newsId, uint64 timestamp, string symbol, string title, string url, string source, string sentiment, string impact, uint16 votesPos, uint16 votesNeg, uint16 votesImp
-```
+**Status:** In development - evaluating data sources for reliable, high-quality news feeds.
 
-**Update Interval:** 30 minutes
+**Planned Features:**
+- Individual news events with sentiment scoring
+- Aggregated news sentiment over time windows
+- Multi-source news aggregation
+- Breaking news alerts
 
-**Source:** CryptoPanic
-
-### 5. News Aggregates (`NewsAggregateV1`)
-
-Aggregated news sentiment over time windows.
-
-**Schema:**
-```
-uint64 timestamp, string symbol, int16 sentimentScore, uint16 newsCount, uint16 importantCount, uint64 windowStart, uint64 windowEnd
-```
-
-**Update Interval:** 1 hour
+**Note:** The CryptoPanic widget is available in the UI for now, but on-chain news data streams are coming soon with a better data provider.
 
 ## Integration Guide
 

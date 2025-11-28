@@ -274,13 +274,15 @@ export function getStreamDocumentation(): object {
       url: "wss://dream-rpc.somnia.network/ws",
       protocol: "Somnia Data Streams SDK",
     },
-    streams: Object.entries(STREAM_SCHEMAS).map(([type, info]) => ({
-      type,
-      eventId: info.eventId,
-      schema: info.schema,
-      description: info.description,
-      activeTokens: getActiveSymbols(type as StreamType),
-    })),
+    streams: Object.entries(STREAM_SCHEMAS)
+      .filter(([type]) => !["NEWS", "NEWS_AGG"].includes(type)) // Hide news streams (coming soon)
+      .map(([type, info]) => ({
+        type,
+        eventId: info.eventId,
+        schema: info.schema,
+        description: info.description,
+        activeTokens: getActiveSymbols(type as StreamType),
+      })),
     integration: {
       npm: "@somnia-chain/streams",
       example: `

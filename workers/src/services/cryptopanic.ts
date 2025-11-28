@@ -17,8 +17,8 @@ import {
   computeSentimentScore 
 } from "../schemas/sentiment.js";
 
-// CryptoPanic Developer API v2
-const CRYPTOPANIC_API = "https://cryptopanic.com/api/developer/v2/posts/";
+// CryptoPanic API - v1 has more data than v2
+const CRYPTOPANIC_API = "https://cryptopanic.com/api/v1/posts/";
 
 // Map common symbols to CryptoPanic currency codes
 const SYMBOL_TO_CURRENCY: Record<string, string> = {
@@ -45,7 +45,7 @@ const SYMBOL_TO_CURRENCY: Record<string, string> = {
   SEI: "SEI",
 };
 
-// CryptoPanic v2 API response types
+// CryptoPanic v1 API response types (v2 is missing critical fields)
 interface CryptoPanicVotes {
   positive?: number;
   negative?: number;
@@ -181,8 +181,11 @@ class CryptoPanicClient {
         // Skip if already seen
         if (post.id <= this.lastSeenId) continue;
 
-        // Get primary currency (from currencies or instruments array)
-        const primaryCurrency = post.currencies?.[0]?.code || post.instruments?.[0]?.code || "CRYPTO";
+        // Get primary currency (from currencies or instruments array, or infer from filter)
+        const primaryCurrency = post.currencies?.[0]?.code || 
+                               post.instruments?.[0]?.code || 
+                               (options.currencies?.[0] || "CRYPTO");
+        
         const sentiment = this.determineSentiment(post.votes);
         const impact = this.determineImpact(post.votes, sentiment);
 
@@ -195,13 +198,30 @@ class CryptoPanicClient {
         const votesNeg = Math.min((votes.negative ?? 0) + (votes.disliked ?? 0), 65535);
         const votesImp = Math.min(votes.important ?? 0, 65535);
 
+        // Build URL - use slug to construct CryptoPanic URL if original_url missing
+        const newsUrl = post.original_url || post.url || 
+                       (post.slug ? `https://cryptopanic.com/news/${post.id}/${post.slug}/` : 
+                        `https://cryptopanic.com/news/${post.id}/`);
+
+        // Get source domain - extract from URL or use default
+        let sourceDomain = "cryptopanic.com";
+        if (post.source?.domain) {
+          sourceDomain = post.source.domain;
+        } else if (newsUrl) {
+          try {
+            sourceDomain = new URL(newsUrl).hostname.replace("www.", "");
+          } catch {
+            // Keep default
+          }
+        }
+
         const newsEvent: NewsEventData = {
           newsId,
           timestamp: BigInt(Math.floor(new Date(post.published_at || post.created_at).getTime() / 1000)),
           symbol: primaryCurrency,
           title: post.title.slice(0, 200), // Limit title length
-          url: post.original_url || post.url,
-          source: post.source.domain,
+          url: newsUrl,
+          source: sourceDomain,
           sentiment,
           impact,
           votesPos,
