@@ -26,14 +26,14 @@ export function CryptoPanicWidget({
     // Load the CryptoPanic widget script once
     if (!scriptLoaded.current) {
       const existingScript = document.querySelector('script[src*="cryptopanic.com/static/js/widgets"]');
-      
+
       if (!existingScript) {
         const script = document.createElement('script');
         script.src = 'https://static.cryptopanic.com/static/js/widgets.min.js';
         script.async = true;
         document.body.appendChild(script);
       }
-      
+
       scriptLoaded.current = true;
     }
 
@@ -50,9 +50,9 @@ export function CryptoPanicWidget({
   }, []);
 
   return (
-    <div ref={containerRef} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-      <div className="p-4 pb-2">
-        <h3 className="text-sm font-semibold text-slate-700 mb-3">📰 Live Crypto News</h3>
+    <div ref={containerRef} className="rounded-xl border border-white/10 bg-[#070E1B] shadow-sm overflow-hidden">
+      <div className="p-4 pb-2 border-b border-white/5">
+        <h3 className="text-sm font-semibold text-white mb-3">📰 Live Crypto News</h3>
       </div>
       <div className="px-2 pb-2">
         <a
@@ -60,11 +60,11 @@ export function CryptoPanicWidget({
           target="_blank"
           rel="noopener noreferrer"
           data-news_feed="recent"
-          data-bg_color={bgColor}
-          data-text_color={textColor}
-          data-link_color={linkColor}
-          data-header_bg_color={headerBgColor}
-          data-header_text_color={headerTextColor}
+          data-bg_color="#070E1B"
+          data-text_color="#ffffff"
+          data-link_color="#0091C2"
+          data-header_bg_color="#070E1B"
+          data-header_text_color="#ffffff"
           data-currencies={currencies}
           className="CryptoPanicWidget"
         >

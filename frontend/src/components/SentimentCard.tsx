@@ -20,31 +20,31 @@ export function SentimentCard({
 }: SentimentCardProps) {
   const isPositive = netScore > 0;
   const isNeutral = netScore === 0;
-  
-  const barColor = isPositive 
-    ? "bg-green-500" 
-    : isNeutral 
-      ? "bg-slate-400" 
+
+  const barColor = isPositive
+    ? "bg-green-500"
+    : isNeutral
+      ? "bg-slate-400"
       : "bg-red-500";
-  
-  const scoreColor = isPositive 
-    ? "text-green-600" 
-    : isNeutral 
-      ? "text-slate-600" 
+
+  const scoreColor = isPositive
+    ? "text-green-600"
+    : isNeutral
+      ? "text-slate-600"
       : "text-red-600";
 
   const lastUpdate = new Date(timestamp * 1000).toLocaleTimeString();
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+    <div className="rounded-lg border border-white/10 bg-black/20 p-3 shadow-sm hover:border-purple-500/30 transition-colors">
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-sm font-semibold text-slate-700">{symbol}</span>
-        <span className="text-xs text-slate-400">{source}</span>
+        <span className="text-sm font-semibold text-white">{symbol}</span>
+        <span className="text-xs text-slate-500">{source}</span>
       </div>
 
       {/* Sentiment bar */}
-      <div className="mb-2 h-2 w-full overflow-hidden rounded-full bg-slate-100">
-        <div 
+      <div className="mb-2 h-2 w-full overflow-hidden rounded-full bg-white/10">
+        <div
           className={`h-full transition-all duration-500 ${barColor}`}
           style={{ width: `${upPercent}%` }}
         />
@@ -53,15 +53,15 @@ export function SentimentCard({
       {/* Stats */}
       <div className="flex items-center justify-between text-xs">
         <div className="flex items-center gap-2">
-          <span className="text-green-600">👍 {upPercent.toFixed(0)}%</span>
-          <span className="text-red-600">👎 {downPercent.toFixed(0)}%</span>
+          <span className="text-emerald-400">👍 {upPercent.toFixed(0)}%</span>
+          <span className="text-rose-400">👎 {downPercent.toFixed(0)}%</span>
         </div>
         <span className={`font-medium ${scoreColor}`}>
           {isPositive ? "+" : ""}{netScore.toFixed(0)}
         </span>
       </div>
 
-      <div className="mt-1 text-right text-xs text-slate-400">
+      <div className="mt-1 text-right text-xs text-slate-500">
         {lastUpdate}
       </div>
     </div>
@@ -83,7 +83,7 @@ interface SentimentGridProps {
 export function SentimentGrid({ sentiments, trackedTokens = [] }: SentimentGridProps) {
   // Get symbols that have sentiment data
   const sentimentSymbols = new Set(sentiments.map(s => s.symbol.toUpperCase()));
-  
+
   // Find tracked tokens without sentiment data yet
   const pendingTokens = trackedTokens.filter(
     t => !sentimentSymbols.has(t.symbol.toUpperCase())
@@ -91,8 +91,8 @@ export function SentimentGrid({ sentiments, trackedTokens = [] }: SentimentGridP
 
   if (sentiments.length === 0 && pendingTokens.length === 0) {
     return (
-      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h3 className="mb-3 text-sm font-semibold text-slate-700">📊 Token Sentiment</h3>
+      <div className="rounded-xl border border-white/10 bg-white/5 p-4 shadow-sm backdrop-blur-sm">
+        <h3 className="mb-3 text-sm font-semibold text-white">📊 Token Sentiment</h3>
         <div className="py-8 text-center text-sm text-slate-400">
           No sentiment data yet. Add tokens in the Tokens tab to track their sentiment.
         </div>
@@ -101,9 +101,9 @@ export function SentimentGrid({ sentiments, trackedTokens = [] }: SentimentGridP
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="rounded-xl border border-white/10 bg-white/5 p-4 shadow-sm backdrop-blur-sm">
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-700">📊 Token Sentiment</h3>
+        <h3 className="text-sm font-semibold text-white">📊 Token Sentiment</h3>
         {trackedTokens.length > 0 && (
           <span className="text-xs text-slate-400">
             {trackedTokens.length} tracked
@@ -116,15 +116,15 @@ export function SentimentGrid({ sentiments, trackedTokens = [] }: SentimentGridP
         ))}
         {/* Show pending tokens (tracked but no sentiment data yet) */}
         {pendingTokens.map((token) => (
-          <div 
+          <div
             key={token.coin_id}
-            className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3"
+            className="rounded-lg border border-dashed border-white/10 bg-white/5 p-3"
           >
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-sm font-semibold text-slate-500">{token.symbol}</span>
-              <span className="text-xs text-slate-400">Pending</span>
+              <span className="text-sm font-semibold text-slate-400">{token.symbol}</span>
+              <span className="text-xs text-slate-500">Pending</span>
             </div>
-            <div className="py-2 text-center text-xs text-slate-400">
+            <div className="py-2 text-center text-xs text-slate-500">
               Waiting for sentiment data...
             </div>
           </div>

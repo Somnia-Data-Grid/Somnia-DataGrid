@@ -71,7 +71,7 @@ export function TokenSearch({ onTokenSelect, walletAddress, showTrackedTokens = 
     setAddingToken(token.id);
     const success = await trackToken(token, walletAddress);
     setAddingToken(null);
-    
+
     if (success) {
       setAddedMessage(`✓ ${token.symbol.toUpperCase()} added to tracking`);
       setTimeout(() => setAddedMessage(null), 3000);
@@ -97,24 +97,24 @@ export function TokenSearch({ onTokenSelect, walletAddress, showTrackedTokens = 
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => query.length >= 2 && setShowDropdown(true)}
           placeholder="Search tokens (e.g., BTC, Ethereum)..."
-          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+          className="w-full px-4 py-3 bg-black/40 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-colors"
         />
         {isSearching && (
           <div className="absolute right-3 top-1/2 -translate-y-1/2">
-            <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            <div className="w-5 h-5 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
           </div>
         )}
 
         {/* Error message */}
         {error && (
-          <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
+          <div className="mt-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-sm text-amber-200">
             ⚠️ {error}
           </div>
         )}
 
         {/* Success message */}
         {addedMessage && (
-          <div className="mt-2 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-700">
+          <div className="mt-2 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-sm text-emerald-400">
             {addedMessage}
           </div>
         )}
@@ -123,31 +123,30 @@ export function TokenSearch({ onTokenSelect, walletAddress, showTrackedTokens = 
         {showDropdown && searchResults.length > 0 && (
           <div
             ref={dropdownRef}
-            className="absolute z-50 w-full mt-2 bg-white border border-slate-200 rounded-lg shadow-lg max-h-64 overflow-y-auto"
+            className="absolute z-50 w-full mt-2 bg-[#0a0a12] border border-white/10 rounded-lg shadow-xl max-h-64 overflow-y-auto"
           >
             {searchResults.map((token) => (
               <button
                 key={token.id}
                 onClick={() => handleSelect(token)}
                 disabled={isTracked(token.id)}
-                className={`w-full px-4 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors first:rounded-t-lg last:rounded-b-lg text-left ${
-                  isTracked(token.id) ? 'opacity-50 cursor-not-allowed' : ''
-                }`}
+                className={`w-full px-4 py-3 flex items-center justify-between hover:bg-white/5 transition-colors first:rounded-t-lg last:rounded-b-lg text-left ${isTracked(token.id) ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
               >
                 <div className="flex items-center gap-3">
-                  <span className="text-sm font-mono text-blue-600 uppercase font-medium">
+                  <span className="text-sm font-mono text-purple-400 uppercase font-medium">
                     {token.symbol}
                   </span>
-                  <span className="text-slate-600 text-sm truncate max-w-[200px]">
+                  <span className="text-slate-300 text-sm truncate max-w-[200px]">
                     {token.name}
                   </span>
                 </div>
                 {addingToken === token.id ? (
-                  <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                  <div className="w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
                 ) : isTracked(token.id) ? (
-                  <span className="text-xs text-emerald-600 font-medium">✓ Tracked</span>
+                  <span className="text-xs text-emerald-400 font-medium">✓ Tracked</span>
                 ) : (
-                  <span className="text-xs text-slate-400">+ Add</span>
+                  <span className="text-xs text-slate-500">+ Add</span>
                 )}
               </button>
             ))}
@@ -158,19 +157,19 @@ export function TokenSearch({ onTokenSelect, walletAddress, showTrackedTokens = 
       {/* Tracked Tokens */}
       {showTrackedTokens && trackedTokens.length > 0 && (
         <div>
-          <h4 className="text-sm text-slate-500 mb-2">Tracked Tokens</h4>
+          <h4 className="text-sm text-slate-400 mb-2">Tracked Tokens</h4>
           <div className="flex flex-wrap gap-2">
             {trackedTokens.map((token) => (
               <div
                 key={token.coin_id}
-                className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-full"
+                className="flex items-center gap-2 px-3 py-1.5 bg-purple-500/10 border border-purple-500/20 rounded-full"
               >
-                <span className="text-sm font-mono text-blue-700 font-medium">
+                <span className="text-sm font-mono text-purple-300 font-medium">
                   {token.symbol}
                 </span>
                 <button
                   onClick={() => untrackToken(token.coin_id)}
-                  className="text-blue-400 hover:text-red-500 transition-colors text-lg leading-none"
+                  className="text-purple-400 hover:text-rose-400 transition-colors text-lg leading-none"
                   title="Remove"
                 >
                   ×

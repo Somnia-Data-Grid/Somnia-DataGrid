@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Somnia DeFi Tracker",
+  title: "Somnia DataGrid",
   description: "Real-time Somnia Data Streams dashboard",
 };
 

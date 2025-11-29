@@ -58,23 +58,23 @@ export function PriceCard({ price }: Props) {
   return (
     <div
       ref={cardRef}
-      className="price-card rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-all"
+      className="price-card rounded-2xl border border-white/10 bg-white/5 p-5 shadow-sm transition-all backdrop-blur-sm"
     >
       <div className="mb-4 flex items-start justify-between">
         <div>
-          <p className="text-sm text-slate-500">USD</p>
-          <h3 className="text-2xl font-semibold text-slate-900">{price.symbol}</h3>
+          <p className="text-sm text-slate-400">USD</p>
+          <h3 className="text-2xl font-semibold text-white">{price.symbol}</h3>
         </div>
         <span className={`rounded-full px-2 py-1 text-xs font-semibold ${SOURCE_COLORS[price.source] || "bg-gray-100 text-gray-700"}`}>
           {SOURCE_LABELS[price.source] || price.source}
         </span>
       </div>
-      <p className="text-4xl font-bold text-slate-900">${price.price}</p>
-      <div className="mt-4 flex items-center justify-between text-xs text-slate-500">
+      <p className="text-4xl font-bold text-white">${price.price}</p>
+      <div className="mt-4 flex items-center justify-between text-xs text-slate-400">
         <span>Updated {relativeTime}</span>
         <button
           type="button"
-          className="text-slate-400 transition hover:text-slate-600"
+          className="text-slate-500 transition hover:text-purple-400"
           title="Copy oracle address"
           onClick={() => navigator.clipboard.writeText(price.sourceAddress)}
         >
