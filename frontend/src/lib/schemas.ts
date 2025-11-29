@@ -8,8 +8,9 @@ export const PRICE_FEED_PARENT = zeroBytes32;
 export const PRICE_UPDATE_EVENT_ID = "PriceUpdateV2";
 
 // ============ Alert Schema ============
+// Note: This schema is for the AlertTriggeredV2 event emitted by the backend
 export const ALERT_SCHEMA =
-  "bytes32 alertId, address userAddress, string asset, string condition, uint256 thresholdPrice, string status, uint64 createdAt, uint64 triggeredAt";
+  "bytes32 alertId, address userAddress, string asset, string condition, uint256 thresholdPrice, uint256 currentPrice, uint64 triggeredAt";
 export const ALERT_SCHEMA_ID = "price_alert";
 export const ALERT_PARENT = zeroBytes32;
 export const ALERT_TRIGGERED_EVENT_ID = "AlertTriggeredV2";
