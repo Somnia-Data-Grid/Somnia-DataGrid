@@ -30,8 +30,15 @@ export function TelegramLinkButton() {
         }
       }
 
-      // Add cache buster to prevent stale responses
-      const response = await fetch(`/api/telegram/link?wallet=${address}&_t=${Date.now()}`);
+      // Add cache buster to prevent stale responses and timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      
+      const response = await fetch(`/api/telegram/link?wallet=${address}&_t=${Date.now()}`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      
       const data = await response.json();
 
       if (data.success) {
@@ -52,9 +59,14 @@ export function TelegramLinkButton() {
         if (waitingForLink && !data.linked) {
           setPollCount(prev => prev + 1);
         }
+      } else {
+        // API returned but not successful - set default unlinked status
+        setStatus({ linked: false, deepLink: data.deepLink });
       }
     } catch (error) {
       console.error("[TelegramLink] Check status error:", error);
+      // On error, set default unlinked status so UI doesn't hang
+      setStatus((prev) => prev ?? { linked: false });
     }
   }, [address, waitingForLink]);
 
@@ -69,7 +81,16 @@ export function TelegramLinkButton() {
     // Fast poll (2s) when waiting for link, slow poll (15s) otherwise
     const pollInterval = waitingForLink ? 2000 : 15000;
     const interval = setInterval(checkStatus, pollInterval);
-    return () => clearInterval(interval);
+    
+    // Fallback: if status is still null after 8 seconds, set default
+    const fallbackTimeout = setTimeout(() => {
+      setStatus((prev) => prev ?? { linked: false });
+    }, 8000);
+    
+    return () => {
+      clearInterval(interval);
+      clearTimeout(fallbackTimeout);
+    };
   }, [address, checkStatus, waitingForLink]);
 
   // Cancel waiting after 60 seconds (30 polls at 2s each)
@@ -142,15 +163,42 @@ export function TelegramLinkButton() {
     );
   }
 
+  // Open Telegram bot in a popup window
+  const openTelegramPopup = () => {
+    // Fallback deepLink if not provided by API
+    const botUsername = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "Somnia_defi_bot";
+    const telegramUrl = status.deepLink || `https://t.me/${botUsername}?start=${address}`;
+    
+    console.log("[TelegramLink] Opening popup:", telegramUrl, "status:", status);
+    
+    const width = 500;
+    const height = 600;
+    const left = window.screenX + (window.outerWidth - width) / 2;
+    const top = window.screenY + (window.outerHeight - height) / 2;
+    
+    const popup = window.open(
+      telegramUrl,
+      'telegram-link',
+      `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+    );
+    
+    // Check if popup was blocked
+    if (!popup || popup.closed) {
+      console.log("[TelegramLink] Popup blocked, opening in new tab");
+      // Fallback: open in new tab if popup blocked
+      window.open(telegramUrl, '_blank');
+    }
+    
+    handleLinkClick();
+  };
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
-        <a
-          href={status.deepLink}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={handleLinkClick}
-          className="flex items-center gap-1.5 rounded-md bg-[#0088cc] px-3 py-1.5 text-xs font-medium text-white transition hover:bg-[#0077b5] shadow-sm shadow-blue-500/20"
+        <button
+          type="button"
+          onClick={openTelegramPopup}
+          className="flex items-center gap-1.5 rounded-md bg-[#0088cc] px-3 py-1.5 text-xs font-medium text-white transition hover:bg-[#0077b5] shadow-sm shadow-blue-500/20 cursor-pointer"
         >
           {waitingForLink ? (
             <>
@@ -165,7 +213,7 @@ export function TelegramLinkButton() {
               Link Telegram
             </>
           )}
-        </a>
+        </button>
         <button
           type="button"
           onClick={handleRefresh}
@@ -184,8 +232,8 @@ export function TelegramLinkButton() {
       </div>
       {waitingForLink && (
         <p className="text-xs text-slate-500">
-          Open Telegram and click "Confirm Link" in the bot chat.
-          {pollCount > 5 && " Still waiting... Make sure the bot received your message."}
+          Click "Start" in the Telegram popup, then confirm the link.
+          {pollCount > 5 && " Still waiting... Make sure you clicked Start in the bot."}
           {pollCount > 15 && " Taking longer than expected. Try clicking Refresh."}
         </p>
       )}

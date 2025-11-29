@@ -109,9 +109,9 @@ async function emitAlertTriggeredEvent(
     { name: "userAddress", value: alert.walletAddress as `0x${string}`, type: "address" },
     { name: "asset", value: alert.asset, type: "string" },
     { name: "condition", value: alert.condition, type: "string" },
-    { name: "thresholdPrice", value: alert.thresholdPrice, type: "uint256" },
-    { name: "currentPrice", value: currentPrice.toString(), type: "uint256" },
-    { name: "triggeredAt", value: now.toString(), type: "uint64" },
+    { name: "thresholdPrice", value: BigInt(alert.thresholdPrice), type: "uint256" },
+    { name: "currentPrice", value: currentPrice, type: "uint256" },
+    { name: "triggeredAt", value: now, type: "uint64" },
   ]);
 
   try {

@@ -140,6 +140,7 @@ export function usePriceSubscription(walletAddress?: string) {
       try {
         const decoded = decodePayload(payload, alertEncoder);
         if (!decoded || decoded.length < 7) {
+          console.log("[AlertDecode] Invalid payload length:", decoded?.length);
           return null;
         }
 
@@ -153,7 +154,7 @@ export function usePriceSubscription(walletAddress?: string) {
         }
         addSeenAlert(dedupeKey);
 
-        return {
+        const alert = {
           alertId,
           userAddress,
           asset: String(extractFieldValue(decoded[2])),
@@ -162,7 +163,11 @@ export function usePriceSubscription(walletAddress?: string) {
           currentPrice: String(extractFieldValue(decoded[5])),
           triggeredAt,
         };
-      } catch {
+        
+        console.log("[AlertDecode] Decoded alert:", alert.asset, "for", userAddress.slice(0, 10));
+        return alert;
+      } catch (err) {
+        console.error("[AlertDecode] Failed to decode:", err);
         return null;
       }
     },
@@ -218,12 +223,19 @@ export function usePriceSubscription(walletAddress?: string) {
             if (alert) {
               // Only show alerts for the connected wallet
               const currentWallet = walletAddressRef.current;
+              console.log("[AlertSub] Alert received:", alert.asset, "user:", alert.userAddress.slice(0, 10), "connected:", currentWallet?.slice(0, 10) || "none");
+              
               if (currentWallet && alert.userAddress.toLowerCase() === currentWallet.toLowerCase()) {
+                console.log("[AlertSub] ✅ Showing alert notification");
                 setAlerts((prev) => [alert, ...prev].slice(0, 10));
+              } else {
+                console.log("[AlertSub] ⏭️ Skipping - wallet mismatch");
               }
             }
           },
-          onError: () => {},
+          onError: (err: Error) => {
+            console.error("[AlertSub] Error:", err);
+          },
         });
 
         unsubscribePrice = priceSub instanceof Error ? undefined : priceSub?.unsubscribe;

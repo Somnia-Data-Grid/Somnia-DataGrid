@@ -40,11 +40,11 @@ export default function LandingPage() {
             Live on Somnia Testnet
           </div>
           <h1 className="text-5xl md:text-7xl font-bold text-white tracking-tight mb-6">
-            Real-time Data Streams <br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-indigo-400">for the Somnia Ecosystem</span>
+            On-Chain Market Intelligence <br />
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-indigo-400">Powered by Somnia Data Streams</span>
           </h1>
           <p className="text-lg md:text-xl text-slate-400 max-w-2xl mx-auto mb-10">
-            Access institutional-grade market data, sentiment analysis, and on-chain alerts directly from your smart contracts or frontend.
+            DataGrid publishes real-time price feeds, sentiment analysis, and alert events using Somnia's Data Streams protocol — ready for your smart contracts and dApps to consume.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link
@@ -132,6 +132,8 @@ export default function LandingPage() {
   );
 }
 
+// Data Streams: Store data on-chain + emit events (can read historical data)
+// Event Streams: Only emit events (subscribe only, no historical data)
 const STREAMS = [
   {
     id: 'price',
@@ -142,7 +144,8 @@ const STREAMS = [
     description: 'Real-time crypto prices (BTC, ETH, etc.)',
     color: 'text-purple-400',
     bg: 'bg-purple-500/10',
-    border: 'border-purple-500/20'
+    border: 'border-purple-500/20',
+    type: 'data' // Data Stream - can read + subscribe
   },
   {
     id: 'sentiment',
@@ -153,7 +156,8 @@ const STREAMS = [
     description: 'Crowd sentiment per token',
     color: 'text-blue-400',
     bg: 'bg-blue-500/10',
-    border: 'border-blue-500/20'
+    border: 'border-blue-500/20',
+    type: 'data'
   },
   {
     id: 'fear_greed',
@@ -164,18 +168,20 @@ const STREAMS = [
     description: 'Market Fear & Greed Index (0-100)',
     color: 'text-orange-400',
     bg: 'bg-orange-500/10',
-    border: 'border-orange-500/20'
+    border: 'border-orange-500/20',
+    type: 'data'
   },
   {
     id: 'alert',
-    label: 'Alert Triggered',
+    label: 'Alert Events',
     icon: '🔔',
     schemaId: '0x23a742dfe97765a981a611d4e2a1d911bcc5f683ecfb8704f90cb146e0c29d45',
     eventId: 'AlertTriggeredV2',
-    description: 'Price alert trigger events',
+    description: 'Price alert trigger notifications (event-only)',
     color: 'text-emerald-400',
     bg: 'bg-emerald-500/10',
-    border: 'border-emerald-500/20'
+    border: 'border-emerald-500/20',
+    type: 'event' // Event Stream - subscribe only
   },
   {
     id: 'news',
@@ -187,6 +193,7 @@ const STREAMS = [
     color: 'text-pink-400',
     bg: 'bg-pink-500/10',
     border: 'border-pink-500/20',
+    type: 'data',
     comingSoon: true
   }
 ];
@@ -198,28 +205,66 @@ function DataStreamsTabs() {
   const activeStream = STREAMS.find(s => s.id === activeTab) || STREAMS[0];
 
   const copyCode = () => {
-    const code = `import { SDK } from '@somnia-chain/streams';
-import { createPublicClient, http } from 'viem';
-import { somniaTestnet } from 'viem/chains';
+    // Different code for Data Streams vs Event Streams
+    const isEventOnly = activeStream.type === 'event';
+    
+    const code = isEventOnly 
+      ? `import { SDK, SchemaEncoder } from '@somnia-chain/streams';
+import { createPublicClient, webSocket } from 'viem';
 
-const publicClient = createPublicClient({
-  chain: somniaTestnet,
-  transport: http(),
+// Use WebSocket for real-time subscriptions
+const wsClient = createPublicClient({
+  chain: { id: 50312, name: 'Somnia Testnet', ... },
+  transport: webSocket('wss://dream-rpc.somnia.network/ws'),
 });
 
-const sdk = new SDK({ public: publicClient });
+const sdk = new SDK({ public: wsClient });
 
-// Subscribe to ${activeStream.label}
-const schemaId = '${activeStream.schemaId}';
-const publisher = '0xCdBc32445c71a5d0a525060e2760bE6982606F20';
+// Subscribe to ${activeStream.label} (Event Stream - subscribe only)
+const subscription = await sdk.streams.subscribe({
+  somniaStreamsEventId: '${activeStream.eventId}',
+  ethCalls: [],
+  onlyPushChanges: false,
+  onData: (data) => {
+    console.log('${activeStream.label}:', data);
+  },
+  onError: (err) => console.error(err),
+});
 
-const subscription = await sdk.streams.subscribe(
-  '${activeStream.eventId}',
-  [], 
-  (event) => {
-    console.log('${activeStream.label} Update:', event);
-  }
-);`;
+// To unsubscribe: subscription.unsubscribe();`
+      : `import { SDK, SchemaEncoder } from '@somnia-chain/streams';
+import { createPublicClient, http, webSocket } from 'viem';
+
+const PUBLISHER = '0xCdBc32445c71a5d0a525060e2760bE6982606F20';
+const SCHEMA_ID = '${activeStream.schemaId}';
+
+// Option 1: Read historical data (HTTP)
+const httpClient = createPublicClient({
+  chain: { id: 50312, name: 'Somnia Testnet', ... },
+  transport: http('https://dream-rpc.somnia.network'),
+});
+const sdk = new SDK({ public: httpClient });
+
+const data = await sdk.streams.getAllPublisherDataForSchema(
+  SCHEMA_ID,
+  PUBLISHER
+);
+console.log('${activeStream.label} Data:', data);
+
+// Option 2: Subscribe to real-time updates (WebSocket)
+const wsClient = createPublicClient({
+  chain: { id: 50312, name: 'Somnia Testnet', ... },
+  transport: webSocket('wss://dream-rpc.somnia.network/ws'),
+});
+const wsSdk = new SDK({ public: wsClient });
+
+const subscription = await wsSdk.streams.subscribe({
+  somniaStreamsEventId: '${activeStream.eventId}',
+  ethCalls: [],
+  onlyPushChanges: false,
+  onData: (data) => console.log('Update:', data),
+});`;
+
     navigator.clipboard.writeText(code);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -243,8 +288,12 @@ const subscription = await sdk.streams.subscribe(
               <div className="font-semibold">{stream.label}</div>
               <div className="text-xs opacity-70">{stream.description}</div>
             </div>
-            {stream.comingSoon && (
-              <span className="text-[10px] uppercase font-bold bg-white/10 px-2 py-0.5 rounded text-white/50">Soon</span>
+            {stream.comingSoon ? (
+              <span className="text-[10px] uppercase font-bold bg-yellow-500/20 px-2 py-0.5 rounded text-yellow-400">Soon</span>
+            ) : stream.type === 'event' ? (
+              <span className="text-[10px] uppercase font-bold bg-emerald-500/20 px-2 py-0.5 rounded text-emerald-400">Event</span>
+            ) : (
+              <span className="text-[10px] uppercase font-bold bg-purple-500/20 px-2 py-0.5 rounded text-purple-400">Data</span>
             )}
           </button>
         ))}
@@ -278,37 +327,64 @@ const subscription = await sdk.streams.subscribe(
           </div>
           <div className="p-6 overflow-x-auto flex-1 font-mono text-sm leading-relaxed">
             {activeStream.comingSoon ? (
+              // Coming Soon
               <div className="h-full flex flex-col items-center justify-center text-slate-500 gap-4 min-h-[200px]">
                 <span className="text-4xl">🚧</span>
-                <p>Example code coming soon...</p>
+                <p className="text-center">
+                  <span className="text-white font-semibold">{activeStream.label}</span> is coming soon!
+                  <br />
+                  <span className="text-sm">Schema ID and Event ID are ready for integration.</span>
+                </p>
               </div>
-            ) : (
+            ) : activeStream.type === 'event' ? (
+              // Event Stream - Subscribe only
               <pre>
                 <code className="language-typescript">
                   <span className="text-purple-400">import</span>{" { SDK } "}<span>from</span>{" "}<span className="text-emerald-400">'@somnia-chain/streams'</span>;{"\n"}
-                  <span className="text-purple-400">import</span>{" { createPublicClient, http } "}<span>from</span>{" "}<span className="text-emerald-400">'viem'</span>;{"\n"}
-                  <span className="text-purple-400">import</span>{" { somniaTestnet } "}<span>from</span>{" "}<span className="text-emerald-400">'viem/chains'</span>;{"\n\n"}
+                  <span className="text-purple-400">import</span>{" { createPublicClient, webSocket } "}<span>from</span>{" "}<span className="text-emerald-400">'viem'</span>;{"\n\n"}
 
-                  <span className="text-purple-400">const</span>{" publicClient = "}<span className="text-blue-400">createPublicClient</span>({"{ \n"}
-                  {"  "}chain: somniaTestnet,{"\n"}
-                  {"  "}transport: <span className="text-blue-400">http</span>(),{"\n"}
+                  <span className="text-slate-500">// Use WebSocket for real-time subscriptions</span>{"\n"}
+                  <span className="text-purple-400">const</span>{" wsClient = "}<span className="text-blue-400">createPublicClient</span>({"{\n"}
+                  {"  "}chain: {"{ "}id: 50312, name: <span className="text-emerald-400">'Somnia Testnet'</span>{" }"},{"\n"}
+                  {"  "}transport: <span className="text-blue-400">webSocket</span>(<span className="text-emerald-400">'wss://dream-rpc.somnia.network/ws'</span>),{"\n"}
                   {"});\n\n"}
 
-                  <span className="text-purple-400">const</span>{" sdk = "}<span className="text-purple-400">new</span>{" "}<span className="text-yellow-400">SDK</span>({"{ \n"}
-                  {"  "}public: publicClient{"\n"}
+                  <span className="text-purple-400">const</span>{" sdk = "}<span className="text-purple-400">new</span>{" "}<span className="text-yellow-400">SDK</span>({"{ "}public: wsClient{" });\n\n"}
+
+                  <span className="text-slate-500">// Subscribe to {activeStream.label} (Event Stream)</span>{"\n"}
+                  <span className="text-purple-400">const</span>{" subscription = "}<span className="text-purple-400">await</span>{" sdk.streams."}<span className="text-blue-400">subscribe</span>({"{\n"}
+                  {"  "}somniaStreamsEventId: <span className="text-emerald-400">'{activeStream.eventId}'</span>,{"\n"}
+                  {"  "}ethCalls: [],{"\n"}
+                  {"  "}onlyPushChanges: <span className="text-orange-400">false</span>,{"\n"}
+                  {"  "}onData: (data) {"=> {\n"}
+                  {"    "}console.<span className="text-blue-400">log</span>(<span className="text-emerald-400">'{activeStream.label}:'</span>, data);{"\n"}
+                  {"  }"},{"\n"}
+                  {"}"});
+                </code>
+              </pre>
+            ) : (
+              // Data Stream - Read + Subscribe
+              <pre>
+                <code className="language-typescript">
+                  <span className="text-purple-400">import</span>{" { SDK } "}<span>from</span>{" "}<span className="text-emerald-400">'@somnia-chain/streams'</span>;{"\n"}
+                  <span className="text-purple-400">import</span>{" { createPublicClient, http } "}<span>from</span>{" "}<span className="text-emerald-400">'viem'</span>;{"\n\n"}
+
+                  <span className="text-purple-400">const</span>{" PUBLISHER = "}<span className="text-emerald-400">'0xCdBc32445c71a5d0a525060e2760bE6982606F20'</span>;{"\n"}
+                  <span className="text-purple-400">const</span>{" SCHEMA_ID = "}<span className="text-emerald-400">'{activeStream.schemaId}'</span>;{"\n\n"}
+
+                  <span className="text-purple-400">const</span>{" client = "}<span className="text-blue-400">createPublicClient</span>({"{\n"}
+                  {"  "}chain: {"{ "}id: 50312, name: <span className="text-emerald-400">'Somnia Testnet'</span>{" }"},{"\n"}
+                  {"  "}transport: <span className="text-blue-400">http</span>(<span className="text-emerald-400">'https://dream-rpc.somnia.network'</span>),{"\n"}
                   {"});\n\n"}
 
-                  <span className="text-slate-500">// Subscribe to {activeStream.label}</span>{"\n"}
-                  <span className="text-purple-400">const</span>{" schemaId = "}<span className="text-emerald-400">'{activeStream.schemaId}'</span>;{"\n"}
-                  <span className="text-purple-400">const</span>{" publisher = "}<span className="text-emerald-400">'0xCdBc32445c71a5d0a525060e2760bE6982606F20'</span>;{"\n\n"}
+                  <span className="text-purple-400">const</span>{" sdk = "}<span className="text-purple-400">new</span>{" "}<span className="text-yellow-400">SDK</span>({"{ "}public: client{" });\n\n"}
 
-                  <span className="text-purple-400">const</span>{" subscription = "}<span className="text-purple-400">await</span>{" sdk.streams."}<span className="text-blue-400">subscribe</span>({"(\n"}
-                  {"  "}<span className="text-emerald-400">'{activeStream.eventId}'</span>,{"\n"}
-                  {"  "}[],{" \n"}
-                  {"  "}(event) {"=>"} {"{\n"}
-                  {"    "}console.<span className="text-blue-400">log</span>(<span className="text-emerald-400">'{activeStream.label} Update:'</span>, event);{"\n"}
-                  {"  }"}{"\n"}
-                  );
+                  <span className="text-slate-500">// Read {activeStream.label} data</span>{"\n"}
+                  <span className="text-purple-400">const</span>{" data = "}<span className="text-purple-400">await</span>{" sdk.streams."}<span className="text-blue-400">getAllPublisherDataForSchema</span>({"(\n"}
+                  {"  "}SCHEMA_ID,{"\n"}
+                  {"  "}PUBLISHER{"\n"}
+                  {");\n\n"}
+                  console.<span className="text-blue-400">log</span>(<span className="text-emerald-400">'{activeStream.label}:'</span>, data);
                 </code>
               </pre>
             )}

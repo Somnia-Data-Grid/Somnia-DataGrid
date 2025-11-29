@@ -21,6 +21,11 @@ export function AlertManager({ prices }: AlertManagerProps) {
   const sortedAssets = useMemo(() => [...prices].sort((a, b) => a.symbol.localeCompare(b.symbol)), [prices]);
 
   const handleSubmit = async () => {
+    if (!isConnected || !address) {
+      setMessage({ type: "error", text: "Please connect your wallet to create alerts." });
+      return;
+    }
+
     if (!asset || !threshold) {
       setMessage({ type: "error", text: "Select an asset and enter a threshold." });
       return;
@@ -77,8 +82,8 @@ export function AlertManager({ prices }: AlertManagerProps) {
       </div>
 
       {!isConnected && (
-        <div className="mb-4 rounded-lg bg-amber-500/10 border border-amber-500/20 px-4 py-3 text-sm text-amber-200">
-          <span className="font-medium">💡 Tip:</span> Connect your wallet to create alerts linked to your address.
+        <div className="mb-4 rounded-lg bg-rose-500/10 border border-rose-500/20 px-4 py-3 text-sm text-rose-200">
+          <span className="font-medium">🔒 Wallet Required:</span> Connect your wallet to create price alerts.
         </div>
       )}
 
@@ -164,10 +169,10 @@ export function AlertManager({ prices }: AlertManagerProps) {
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={isSubmitting || !asset || !threshold}
+          disabled={isSubmitting || !asset || !threshold || !isConnected}
           className="w-full rounded-lg bg-purple-600 hover:bg-purple-500 px-4 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
         >
-          {isSubmitting ? "Creating alert..." : "Create Alert"}
+          {!isConnected ? "Connect Wallet to Create Alert" : isSubmitting ? "Creating alert..." : "Create Alert"}
         </button>
       </div>
     </div>

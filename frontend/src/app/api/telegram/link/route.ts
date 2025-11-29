@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTelegramLink, deleteTelegramLink, createTelegramLink } from "@/lib/db/client";
 import type { TelegramLink } from "@/lib/db/schema";
 
-const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "SomniaDeFiBot";
+const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "Somnia_defi_bot";
 const WORKERS_API_URL = process.env.WORKERS_API_URL;
 const WORKERS_API_SECRET = process.env.WORKERS_API_SECRET;
 
