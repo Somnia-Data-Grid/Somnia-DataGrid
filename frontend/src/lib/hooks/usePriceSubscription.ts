@@ -25,6 +25,7 @@ export interface UiPrice {
 
 export interface AlertNotification {
   alertId: string;
+  userAddress: string;
   asset: string;
   condition: string;
   thresholdPrice: string;
@@ -54,12 +55,17 @@ function createWsClient() {
   });
 }
 
-export function usePriceSubscription() {
+export function usePriceSubscription(walletAddress?: string) {
   const [prices, setPrices] = useState<Map<string, UiPrice>>(new Map());
   const [alerts, setAlerts] = useState<AlertNotification[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const lastPollRef = useRef<number>(0);
+  const walletAddressRef = useRef<string | undefined>(walletAddress);
+  
+  // Keep wallet address ref updated
+  useEffect(() => {
+    walletAddressRef.current = walletAddress;
+  }, [walletAddress]);
 
   const priceEncoder = useMemo(() => new SchemaEncoder(PRICE_FEED_SCHEMA), []);
   const alertEncoder = useMemo(() => new SchemaEncoder(ALERT_SCHEMA), []);
@@ -138,6 +144,7 @@ export function usePriceSubscription() {
         }
 
         const alertId = String(extractFieldValue(decoded[0]));
+        const userAddress = String(extractFieldValue(decoded[1]));
         const triggeredAtRaw = extractFieldValue(decoded[6]);
         const triggeredAt = Number(triggeredAtRaw as string | number | bigint);
         const dedupeKey = `${alertId}-${triggeredAt}`;
@@ -148,6 +155,7 @@ export function usePriceSubscription() {
 
         return {
           alertId,
+          userAddress,
           asset: String(extractFieldValue(decoded[2])),
           condition: String(extractFieldValue(decoded[3])),
           thresholdPrice: String(extractFieldValue(decoded[4])),
@@ -208,7 +216,11 @@ export function usePriceSubscription() {
           onData: (data: unknown) => {
             const alert = decodeAlert(data);
             if (alert) {
-              setAlerts((prev) => [alert, ...prev].slice(0, 10));
+              // Only show alerts for the connected wallet
+              const currentWallet = walletAddressRef.current;
+              if (currentWallet && alert.userAddress.toLowerCase() === currentWallet.toLowerCase()) {
+                setAlerts((prev) => [alert, ...prev].slice(0, 10));
+              }
             }
           },
           onError: () => {},
@@ -235,38 +247,8 @@ export function usePriceSubscription() {
     };
   }, [decodeAlert, decodePrice]);
 
-  useEffect(() => {
-    // Initial poll immediately
-    const pollAlerts = async () => {
-      try {
-        const response = await fetch("/api/alerts/triggered?since=" + lastPollRef.current);
-        if (!response.ok) return;
-        
-        const data = await response.json();
-        if (data.success && data.alerts?.length) {
-          console.log("[Alerts] Polled triggered alerts:", data.alerts.length);
-          data.alerts.forEach((alert: AlertNotification) => {
-            addAlert(alert);
-          });
-          // Update lastPoll to latest alert timestamp to avoid duplicates
-          const latestTs = Math.max(...data.alerts.map((a: AlertNotification) => a.triggeredAt * 1000));
-          if (latestTs > lastPollRef.current) {
-            lastPollRef.current = latestTs;
-          }
-        }
-      } catch {
-        // Polling is best-effort
-      }
-    };
-
-    // Poll immediately on mount
-    pollAlerts();
-    
-    // Then poll every 5 seconds
-    const pollInterval = setInterval(pollAlerts, 5000);
-
-    return () => clearInterval(pollInterval);
-  }, [addAlert]);
+  // Removed polling for triggered alerts - alerts should only come from WebSocket subscription
+  // This prevents showing alerts to users who don't own them
 
   return {
     prices: Array.from(prices.values()),
