@@ -1,0 +1,53 @@
+name: Deploy workers to Droplet
+
+on:
+  push:
+    branches:
+      - main  # change if your default branch is different
+
+jobs:
+  deploy-workers:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install workers dependencies
+        working-directory: workers
+        run: |
+          npm install
+
+      - name: Build workers
+        working-directory: workers
+        run: |
+          npm run build
+
+      # Copy compiled dist/ to the droplet
+      - name: Upload dist to Droplet
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          # copy the whole dist directory into the workers dir
+          source: "workers/dist"
+          target: "/var/www/somnia-datagrid/workers"
+          strip_components: 1
+
+      # Restart PM2 app
+      - name: Restart PM2 on Droplet
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          script: |
+            cd /var/www/somnia-datagrid
+            pm2 restart datagrid
+            pm2 status

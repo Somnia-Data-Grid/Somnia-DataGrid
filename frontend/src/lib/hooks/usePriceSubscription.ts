@@ -35,6 +35,7 @@ export interface AlertNotification {
 
 const FALLBACK_WS = "wss://dream-rpc.somnia.network/ws";
 const MAX_SEEN_ALERTS = 500;
+const RECONNECT_DELAY = 10000; // 10 seconds between reconnects
 
 const seenAlertIds = new Set<string>();
 
@@ -47,6 +48,27 @@ function addSeenAlert(key: string) {
   }
 }
 
+// Singleton connection manager to prevent multiple subscriptions
+let globalConnection: {
+  sdk: SDK | null;
+  priceUnsubscribe: (() => void) | null;
+  alertUnsubscribe: (() => void) | null;
+  subscribers: Set<(price: UiPrice) => void>;
+  alertSubscribers: Set<(alert: AlertNotification) => void>;
+  isConnecting: boolean;
+  isConnected: boolean;
+  error: string | null;
+} = {
+  sdk: null,
+  priceUnsubscribe: null,
+  alertUnsubscribe: null,
+  subscribers: new Set(),
+  alertSubscribers: new Set(),
+  isConnecting: false,
+  isConnected: false,
+  error: null,
+};
+
 function createWsClient() {
   const url = process.env.NEXT_PUBLIC_WEBSOCKET_URL ?? FALLBACK_WS;
   return createPublicClient({
@@ -58,10 +80,11 @@ function createWsClient() {
 export function usePriceSubscription(walletAddress?: string) {
   const [prices, setPrices] = useState<Map<string, UiPrice>>(new Map());
   const [alerts, setAlerts] = useState<AlertNotification[]>([]);
-  const [isConnected, setIsConnected] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [isConnected, setIsConnected] = useState(globalConnection.isConnected);
+  const [error, setError] = useState<string | null>(globalConnection.error);
   const walletAddressRef = useRef<string | undefined>(walletAddress);
-  
+  const mountedRef = useRef(true);
+
   // Keep wallet address ref updated
   useEffect(() => {
     walletAddressRef.current = walletAddress;
@@ -81,16 +104,13 @@ export function usePriceSubscription(walletAddress?: string) {
           return null;
         }
       }
-
       if (Array.isArray(payload)) {
         return payload as DecodedFields;
       }
-
       if (payload && typeof payload === "object" && "data" in payload) {
         const data = (payload as { data: unknown }).data;
         return decodePayload(data, encoder);
       }
-
       return null;
     },
     [],
@@ -100,9 +120,7 @@ export function usePriceSubscription(walletAddress?: string) {
     (payload: unknown): UiPrice | null => {
       try {
         const decoded = decodePayload(payload, priceEncoder);
-        if (!decoded || decoded.length < 6) {
-          return null;
-        }
+        if (!decoded || decoded.length < 6) return null;
 
         const timestamp = Number(extractFieldValue(decoded[0]) as string | number);
         const symbol = String(extractFieldValue(decoded[1]));
@@ -114,20 +132,9 @@ export function usePriceSubscription(walletAddress?: string) {
         const divisor = BigInt(10 ** decimals);
         const whole = priceRaw / divisor;
         const fraction = priceRaw % divisor;
-        const formatted = `${whole}.${fraction
-          .toString()
-          .padStart(decimals, "0")
-          .slice(0, 2)}`;
+        const formatted = `${whole}.${fraction.toString().padStart(decimals, "0").slice(0, 2)}`;
 
-        return {
-          symbol,
-          price: formatted,
-          priceRaw: priceRaw.toString(),
-          decimals,
-          source,
-          timestamp,
-          sourceAddress,
-        };
+        return { symbol, price: formatted, priceRaw: priceRaw.toString(), decimals, source, timestamp, sourceAddress };
       } catch {
         return null;
       }
@@ -139,22 +146,17 @@ export function usePriceSubscription(walletAddress?: string) {
     (payload: unknown): AlertNotification | null => {
       try {
         const decoded = decodePayload(payload, alertEncoder);
-        if (!decoded || decoded.length < 7) {
-          console.log("[AlertDecode] Invalid payload length:", decoded?.length);
-          return null;
-        }
+        if (!decoded || decoded.length < 7) return null;
 
         const alertId = String(extractFieldValue(decoded[0]));
         const userAddress = String(extractFieldValue(decoded[1]));
         const triggeredAtRaw = extractFieldValue(decoded[6]);
         const triggeredAt = Number(triggeredAtRaw as string | number | bigint);
         const dedupeKey = `${alertId}-${triggeredAt}`;
-        if (seenAlertIds.has(dedupeKey)) {
-          return null;
-        }
+        if (seenAlertIds.has(dedupeKey)) return null;
         addSeenAlert(dedupeKey);
 
-        const alert = {
+        return {
           alertId,
           userAddress,
           asset: String(extractFieldValue(decoded[2])),
@@ -163,9 +165,6 @@ export function usePriceSubscription(walletAddress?: string) {
           currentPrice: String(extractFieldValue(decoded[5])),
           triggeredAt,
         };
-        
-        console.log("[AlertDecode] Decoded alert:", alert.asset, "for", userAddress.slice(0, 10));
-        return alert;
       } catch (err) {
         console.error("[AlertDecode] Failed to decode:", err);
         return null;
@@ -181,86 +180,167 @@ export function usePriceSubscription(walletAddress?: string) {
     setAlerts((prev) => [alert, ...prev].slice(0, 10));
   }, []);
 
+
+  // Subscribe to price updates
   useEffect(() => {
-    let wsClient: ReturnType<typeof createWsClient>;
-    let sdk: SDK;
-    let unsubscribePrice: (() => void) | undefined;
-    let unsubscribeAlert: (() => void) | undefined;
+    mountedRef.current = true;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    let cancelled = false;
 
-    async function subscribe() {
+    // Handler for this component instance
+    const handlePrice = (price: UiPrice) => {
+      if (!mountedRef.current) return;
+      setPrices((prev) => {
+        const next = new Map(prev);
+        next.set(price.symbol, price);
+        return next;
+      });
+    };
+
+    const handleAlert = (alert: AlertNotification) => {
+      if (!mountedRef.current) return;
+      const currentWallet = walletAddressRef.current;
+      if (currentWallet && alert.userAddress.toLowerCase() === currentWallet.toLowerCase()) {
+        setAlerts((prev) => [alert, ...prev].slice(0, 10));
+      }
+    };
+
+    // Add this component as a subscriber
+    globalConnection.subscribers.add(handlePrice);
+    globalConnection.alertSubscribers.add(handleAlert);
+
+    // Sync state from global connection
+    const syncState = () => {
+      if (!mountedRef.current) return;
+      setIsConnected(globalConnection.isConnected);
+      setError(globalConnection.error);
+    };
+
+    async function initConnection() {
+      // If already connected or connecting, just sync state
+      if (globalConnection.isConnected || globalConnection.isConnecting) {
+        syncState();
+        return;
+      }
+
+      // Prevent multiple simultaneous connection attempts
+      if (globalConnection.isConnecting) return;
+      globalConnection.isConnecting = true;
+
       try {
-        wsClient = createWsClient();
-        sdk = new SDK({ public: wsClient });
+        console.log("[PriceSub] Creating shared WebSocket connection...");
+        const wsClient = createWsClient();
+        const sdk = new SDK({ public: wsClient });
+        globalConnection.sdk = sdk;
 
+        // Subscribe to price updates
         const priceSub = await sdk.streams.subscribe({
           somniaStreamsEventId: PRICE_UPDATE_EVENT_ID,
           ethCalls: [],
           onlyPushChanges: false,
           onData: (data: unknown) => {
-            const price = decodePrice(data);
+            const priceEncoder = new SchemaEncoder(PRICE_FEED_SCHEMA);
+            const decoded = decodePayloadStatic(data, priceEncoder);
+            if (!decoded || decoded.length < 6) return;
+
+            const price = decodePriceStatic(decoded);
             if (price) {
-              setPrices((prev) => {
-                const next = new Map(prev);
-                next.set(price.symbol, price);
-                return next;
-              });
+              globalConnection.subscribers.forEach(cb => cb(price));
             }
           },
           onError: (err: Error) => {
-            setError(err.message);
-            setIsConnected(false);
-            reconnectTimer = setTimeout(subscribe, 5000);
+            console.error("[PriceSub] Stream error:", err.message);
+            globalConnection.isConnected = false;
+            globalConnection.error = err.message;
+            globalConnection.subscribers.forEach(() => syncState());
+            
+            // Schedule reconnect
+            if (!cancelled) {
+              reconnectTimer = setTimeout(() => {
+                globalConnection.isConnecting = false;
+                initConnection();
+              }, RECONNECT_DELAY);
+            }
           },
         });
 
+        if (priceSub instanceof Error) {
+          throw priceSub;
+        }
+
+        globalConnection.priceUnsubscribe = priceSub?.unsubscribe;
+
+        // Subscribe to alerts
         const alertSub = await sdk.streams.subscribe({
           somniaStreamsEventId: ALERT_TRIGGERED_EVENT_ID,
           ethCalls: [],
           onlyPushChanges: false,
           onData: (data: unknown) => {
-            const alert = decodeAlert(data);
+            const alertEncoder = new SchemaEncoder(ALERT_SCHEMA);
+            const decoded = decodePayloadStatic(data, alertEncoder);
+            if (!decoded || decoded.length < 7) return;
+
+            const alert = decodeAlertStatic(decoded);
             if (alert) {
-              // Only show alerts for the connected wallet
-              const currentWallet = walletAddressRef.current;
-              console.log("[AlertSub] Alert received:", alert.asset, "user:", alert.userAddress.slice(0, 10), "connected:", currentWallet?.slice(0, 10) || "none");
-              
-              if (currentWallet && alert.userAddress.toLowerCase() === currentWallet.toLowerCase()) {
-                console.log("[AlertSub] ✅ Showing alert notification");
-                setAlerts((prev) => [alert, ...prev].slice(0, 10));
-              } else {
-                console.log("[AlertSub] ⏭️ Skipping - wallet mismatch");
-              }
+              globalConnection.alertSubscribers.forEach(cb => cb(alert));
             }
           },
           onError: (err: Error) => {
-            console.error("[AlertSub] Error:", err);
+            console.error("[AlertSub] Stream error:", err.message);
           },
         });
 
-        unsubscribePrice = priceSub instanceof Error ? undefined : priceSub?.unsubscribe;
-        unsubscribeAlert = alertSub instanceof Error ? undefined : alertSub?.unsubscribe;
-        setIsConnected(true);
-        setError(null);
+        if (!(alertSub instanceof Error)) {
+          globalConnection.alertUnsubscribe = alertSub?.unsubscribe;
+        }
+
+        globalConnection.isConnected = true;
+        globalConnection.isConnecting = false;
+        globalConnection.error = null;
+        console.log("[PriceSub] ✓ Connected to Somnia Data Streams");
+        syncState();
+
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to subscribe";
-        setError(message);
-        setIsConnected(false);
-        reconnectTimer = setTimeout(subscribe, 5000);
+        console.error("[PriceSub] Connection failed:", message);
+        globalConnection.isConnected = false;
+        globalConnection.isConnecting = false;
+        globalConnection.error = message;
+        syncState();
+
+        // Schedule reconnect
+        if (!cancelled) {
+          reconnectTimer = setTimeout(() => {
+            initConnection();
+          }, RECONNECT_DELAY);
+        }
       }
     }
 
-    subscribe();
+    initConnection();
 
     return () => {
+      mountedRef.current = false;
+      cancelled = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      unsubscribePrice?.();
-      unsubscribeAlert?.();
-    };
-  }, [decodeAlert, decodePrice]);
+      
+      // Remove this component from subscribers
+      globalConnection.subscribers.delete(handlePrice);
+      globalConnection.alertSubscribers.delete(handleAlert);
 
-  // Removed polling for triggered alerts - alerts should only come from WebSocket subscription
-  // This prevents showing alerts to users who don't own them
+      // Only cleanup global connection if no more subscribers
+      if (globalConnection.subscribers.size === 0) {
+        console.log("[PriceSub] No more subscribers, cleaning up connection");
+        globalConnection.priceUnsubscribe?.();
+        globalConnection.alertUnsubscribe?.();
+        globalConnection.sdk = null;
+        globalConnection.priceUnsubscribe = null;
+        globalConnection.alertUnsubscribe = null;
+        globalConnection.isConnected = false;
+        globalConnection.isConnecting = false;
+      }
+    };
+  }, []); // Empty deps - connection is managed globally
 
   return {
     prices: Array.from(prices.values()),
@@ -269,4 +349,68 @@ export function usePriceSubscription(walletAddress?: string) {
     error,
     addAlert,
   };
+}
+
+
+// Static decode functions for use in callbacks (avoid closure issues)
+function decodePayloadStatic(payload: unknown, encoder: SchemaEncoder): ReturnType<SchemaEncoder["decodeData"]> | null {
+  if (typeof payload === "string") {
+    try {
+      return encoder.decodeData(payload as `0x${string}`);
+    } catch {
+      return null;
+    }
+  }
+  if (Array.isArray(payload)) {
+    return payload as ReturnType<SchemaEncoder["decodeData"]>;
+  }
+  if (payload && typeof payload === "object" && "data" in payload) {
+    const data = (payload as { data: unknown }).data;
+    return decodePayloadStatic(data, encoder);
+  }
+  return null;
+}
+
+function decodePriceStatic(decoded: ReturnType<SchemaEncoder["decodeData"]>): UiPrice | null {
+  try {
+    const timestamp = Number(extractFieldValue(decoded[0]) as string | number);
+    const symbol = String(extractFieldValue(decoded[1]));
+    const priceRaw = BigInt(extractFieldValue(decoded[2]) as string | number | bigint);
+    const decimals = Number(extractFieldValue(decoded[3]) as string | number);
+    const source = String(extractFieldValue(decoded[4])) as UiPrice["source"];
+    const sourceAddress = String(extractFieldValue(decoded[5]));
+
+    const divisor = BigInt(10 ** decimals);
+    const whole = priceRaw / divisor;
+    const fraction = priceRaw % divisor;
+    const formatted = `${whole}.${fraction.toString().padStart(decimals, "0").slice(0, 2)}`;
+
+    return { symbol, price: formatted, priceRaw: priceRaw.toString(), decimals, source, timestamp, sourceAddress };
+  } catch {
+    return null;
+  }
+}
+
+function decodeAlertStatic(decoded: ReturnType<SchemaEncoder["decodeData"]>): AlertNotification | null {
+  try {
+    const alertId = String(extractFieldValue(decoded[0]));
+    const userAddress = String(extractFieldValue(decoded[1]));
+    const triggeredAtRaw = extractFieldValue(decoded[6]);
+    const triggeredAt = Number(triggeredAtRaw as string | number | bigint);
+    const dedupeKey = `${alertId}-${triggeredAt}`;
+    if (seenAlertIds.has(dedupeKey)) return null;
+    addSeenAlert(dedupeKey);
+
+    return {
+      alertId,
+      userAddress,
+      asset: String(extractFieldValue(decoded[2])),
+      condition: String(extractFieldValue(decoded[3])),
+      thresholdPrice: String(extractFieldValue(decoded[4])),
+      currentPrice: String(extractFieldValue(decoded[5])),
+      triggeredAt,
+    };
+  } catch {
+    return null;
+  }
 }

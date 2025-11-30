@@ -10,18 +10,79 @@
  */
 
 import "dotenv/config";
-import { type Hex } from "viem";
+import { type Hex, keccak256, toBytes } from "viem";
+import { waitForTransactionReceipt } from "viem/actions";
 import { SchemaEncoder } from "@somnia-chain/streams";
 import { getDb, closeDb, insertPriceRecord } from "../db/client.js";
 import { coingeckoClient } from "./coingecko.js";
 import { diaClient, DIA_ONLY_ASSETS, DIA_ASSET_KEYS } from "./dia.js";
 import { getAllCoingeckoIds, getActiveSymbols, initStreamRegistry } from "./stream-registry.js";
 import { checkAndTriggerAlerts, getActiveAlertCount } from "./alert-checker.js";
-import { initTxManager, getSDK, queueSetAndEmitEvents } from "./tx-manager.js";
+import { initTxManager, getSDK, getPublicClient, queueSetAndEmitEvents } from "./tx-manager.js";
 
 // Schemas
 const PRICE_FEED_SCHEMA = "uint64 timestamp, string symbol, uint256 price, uint8 decimals, string source, address sourceAddress";
 const PRICE_UPDATE_EVENT_ID = "PriceUpdateV2";
+
+// Track if event schema is registered
+let eventSchemaRegistered = false;
+
+/**
+ * Ensure the PriceUpdateV2 event schema is registered on-chain
+ */
+async function ensureEventSchemaRegistered(): Promise<void> {
+  if (eventSchemaRegistered) return;
+
+  const sdk = getSDK();
+  const publicClient = getPublicClient();
+
+  const eventSignature = `${PRICE_UPDATE_EVENT_ID}(bytes)`;
+  const eventTopic = keccak256(toBytes(eventSignature));
+
+  try {
+    console.log("[Publisher] Registering PriceUpdateV2 event schema...");
+    const result = await sdk.streams.registerEventSchemas([
+      {
+        id: PRICE_UPDATE_EVENT_ID,
+        schema: {
+          eventTopic,
+          params: [{ name: "priceData", paramType: "bytes", isIndexed: false }],
+        },
+      },
+    ]);
+
+    if (result instanceof Error) {
+      // Already registered is fine
+      if (
+        result.message.includes("EventSchemaAlreadyRegistered") ||
+        result.message.includes("EventTopicAlreadyRegistered") ||
+        (result as any).errorName === "EventSchemaAlreadyRegistered" ||
+        (result as any).errorName === "EventTopicAlreadyRegistered"
+      ) {
+        eventSchemaRegistered = true;
+        console.log("[Publisher] Event schema already registered");
+        return;
+      }
+      throw result;
+    }
+
+    if (result) {
+      await waitForTransactionReceipt(publicClient, { hash: result });
+    }
+    eventSchemaRegistered = true;
+    console.log("[Publisher] ✓ PriceUpdateV2 event schema registered");
+  } catch (error) {
+    // Check if it's an "already registered" error
+    const errMsg = error instanceof Error ? error.message : String(error);
+    if (errMsg.includes("AlreadyRegistered") || errMsg.includes("already")) {
+      eventSchemaRegistered = true;
+      console.log("[Publisher] Event schema already registered");
+      return;
+    }
+    console.error("[Publisher] Failed to register event schema:", error);
+    throw error;
+  }
+}
 
 const PRICE_DECIMALS = 8;
 const OFFCHAIN_SOURCE = "0x0000000000000000000000000000000000000000" as const;
@@ -138,6 +199,9 @@ async function publishPrices(symbols: string[]): Promise<void> {
   if (diaClient.isEnabled()) {
     console.log(`[Publisher] DIA Oracle: enabled`);
   }
+
+  // Ensure event schema is registered before publishing
+  await ensureEventSchemaRegistered();
 
   const sdk = getSDK();
   const encoder = new SchemaEncoder(PRICE_FEED_SCHEMA);
